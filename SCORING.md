@@ -16,10 +16,10 @@ node scorer/score.mjs <repo> --out reports/tests   # SCOREBOARD.html, SCOREBOARD
 | Rules purity | 15 | Rules tests that never reach a database, network, configuration or environment |
 | Speed | 10 | Few milliseconds per line of source code, per layer (Rules 7, Journeys 3) |
 | Overtesting | 25 | No squared loops, no restated implementation, no piles of tests on one function |
-| Undertesting | 25 | Rules named in tests, changed code reached by tests, Journeys that check outcomes, mutants killed |
-| Journey coverage | 15 | Entry points (routes, tools, configured entries) that some Journey goes through |
+| Undertesting | 25 | Rules named in tests, changed core files in the Rules import graph, Journeys that check outcomes, mutants killed |
+| Journey coverage | 15 | Configured user outcomes observed passing during this invocation |
 | Determinism | 5 | No unseeded randomness, real clocks, sleeps or retries in tests |
-| Journey freshness | 5 | Journeys rewritten since the code they cover last changed |
+| Journey freshness | 5 | Recorded source hashes matching their current source |
 
 **Unmeasured is not perfect.** A dimension the scorer can't measure (speed without `--run`, freshness with no Journeys) shows as `n/a` and is left out. The headline is the weighted average of the measured dimensions, and the scoreboard says how much weight was measured ("measured 75 of 100").
 
@@ -100,19 +100,21 @@ A weighted average of whichever of these can be measured:
 | Signal | Weight | How it's measured |
 | --- | ---: | --- |
 | Core exports named in Rules tests | 40 | Exported functions, constants and classes in `core` whose name appears in Rules tests or their support files |
-| Changed code reached by tests | 25 | Source files changed in the last 30 days (`git log`; `--since <days>`) that any test reaches through imports |
+| Changed code reached by tests | 25 | Core files changed in the last 30 days (`git log`; `--since <days>`) reachable through Rules imports |
 | Journeys that check an outcome | 10 | Journey files with an `expect`, `assert`, `should` or `Then` |
 | Mutation score | 25 | Killed ÷ (killed + survived + no coverage) from `reports/mutation/mutation.json` (Stryker). Tests that can't fail show up here. |
 
 ### Journey coverage
 
-Entry points are:
+Configure an ordered list of user goals in `outcomes`, each with a unique slug `id` and a human-readable `title`. During `--run`, the scorer gives the Journey command a fresh temporary directory in `RJ_EVIDENCE_DIR`. The test adapter writes one `<id>.json` after the assertions for that goal finish:
 
-- Express-style routes (`app.get('/path'`, `router.post(…)`);
-- MCP tools (`registerTool('name'`, `.tool('name'`);
-- anything listed in `entryPoints`.
+```json
+{ "status": "passed", "routes": ["POST /orders", "GET /orders/:id"] }
+```
 
-An entry point is covered when its path or name appears in a Journey or its step code.
+Write `failed` if an assertion fails. Record route templates observed during requests, including the method, without user identifiers or parameters. The goal score is passed outcomes divided by configured outcomes. Missing observations earn no credit in a timed run. A static scan or an unconfigured goal list leaves this dimension unmeasured. The route inventory underneath is matched by exact ID and is diagnostic only. The summary prioritizes failed goals, then missing goals in configuration order.
+
+`--run --require-pass` writes the report and returns a nonzero status if either suite failed or was missing. The runner output goes to stderr. CI can validate and score in one invocation.
 
 ### Determinism
 
@@ -143,10 +145,10 @@ The hash is SHA-256 over each matched file's repo path and contents (NUL-separat
 ## Per layer and per folder
 
 - **Layers:** files, test count, findings and time (with `--run`) for Rules and for Journeys.
-- **Folders:** each source folder (two levels deep) gets:
+- **Folders:** each core folder (two levels deep) gets:
   - its file and line counts;
   - its exports named in Rules tests;
-  - its files reached by any test;
+  - its core files in the Rules import graph;
   - its changed-but-untested files;
   - a folder score: 60% exports named plus 40% files reached.
 
@@ -186,4 +188,10 @@ Put an optional `rules-and-journeys.json` at the repo root:
 
 `areas` groups the app's entry points and describes each group in plain English; the report's Journeys section shows
 each area's coverage. An entry is a detected id (`POST /api/checkout`) or a URL fragment the scorer can't find itself
-(`POST /api/cart/`), covered when a Journey's code contains it. Detected entry points in no area are listed under "Other".
+(`POST /api/cart/`), matched against the exact method and route ID in runtime evidence. Detected entry points in no area are listed under "Other".
+
+## Comparing runs
+
+Rubric 2 starts a new series when the rubric, effective configuration, measured dimensions, or availability of mutation and timing inputs changes. Older reports remain readable. The commit and local-edit indicator identify the checkout. One observation provides a baseline, and subsequent comparable observations draw the sparklines.
+
+Use `coreExclude` to share shell exclusions with a project's boundary checker. Folder scores blend export-name mentions and import reach in the Rules layer. `journeySetupImports` can allow specific named setup imports such as a random-seed setter. Other exports from the same module still undergo the boundary check.

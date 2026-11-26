@@ -14,13 +14,13 @@ const when = iso => new Date(iso).toISOString().slice(0, 16).replace('T', ' ');
 const NAMES = { rulesPurity: 'Purity', speed: 'Speed', overtesting: 'Avoid overtesting', undertesting: 'Avoid undertesting', journeyCoverage: 'Journey coverage', determinism: 'Determinism', freshness: 'Freshness' };
 /** What each dimension measures, in plain English (shown on hover). */
 const EXPLAIN = {
-  rulesPurity: 'Rules tests run with no database, network, environment variables or test doubles. 100 means every Rules test file is pure.',
+  rulesPurity: 'Rules tests run with no database, network, environment variables or test doubles. The static check follows imports and scans the test files for direct environment and network access.',
   speed: 'Test time per line of source code, for each layer. A fast suite gets run on every change, by people and by agents.',
   overtesting: 'Penalizes tests that multiply (X × Y loops), mocks that restate the code, snapshots of internals, piles of tests on one small function, and Journeys that reach into rules.',
   undertesting: 'Rewards rules that have tests, recently changed code that some test reaches, Journeys that check an outcome and, when there is a mutation report, tests that catch mutations.',
-  journeyCoverage: "Share of the app's entry points (routes, tools, actions) that at least one Journey goes through.",
-  determinism: 'Tests give the same result on every run: no unseeded randomness, real clocks, sleeps or retries.',
-  freshness: 'Journeys whose steps were rewritten since the code they walk through last changed. A stale Journey still passes, but it may be walking an outdated path.',
+  journeyCoverage: "Share of configured user outcomes observed passing in this run.",
+  determinism: 'Static scan for random values, real clocks, sleeps and retries.',
+  freshness: 'Checks whether the source files named by a Journey still match the hash recorded at its last review.',
 };
 /** Relative time, filled in by the page's script when it loads (so it stays right as the page ages). */
 const ago = iso => `{ago:${new Date(iso).toISOString()}}`;
@@ -50,7 +50,7 @@ const columns = (data, domain) => Plot.rect(data, { x1: d => d.i - 0.5, x2: d =>
 
 /** The headline score over every run: area + line on 0–100. */
 function trendChart(points) {
-  if (points.length < 2) return '<p class="muted small">The trend starts with the next run.</p>';
+  if (!points.length) return '';
   const data = points.map((p, i) => ({ i, score: p.score, tip: `${p.score}/100 · ${ago(p.scoredAt)}` }));
   return chart({ width: 380, height: 132, marginLeft: 28, marginRight: 8, marginTop: 10, marginBottom: 8,
     x: { axis: null, domain: [-0.5, data.length - 0.5] }, y: { domain: [0, 100], ticks: [0, 50, 100], tickSize: 0, label: null },
@@ -67,12 +67,12 @@ function trendChart(points) {
 function sparkline(values, { domain = [0, 100], tips = [], height = 40 } = {}) {
   const data = values.map((v, i) => ({ i, v, tip: tips[i] ?? '' }));
   const defined = data.filter(d => d.v !== null && d.v !== undefined);
-  if (defined.length < 2) return `<div class="spark-empty">${defined.length ? 'history starts here' : 'not measured'}</div>`;
+  if (defined.length < 2) return '';
   return chart({ width: 230, height, margin: 4, marginTop: 6, x: { axis: null, domain: [-0.5, data.length - 0.5] }, y: { axis: null, domain },
     marks: [
       Plot.ruleY([domain[0]], { stroke: 'var(--hairline)' }),
-      Plot.areaY(defined, { x: 'i', y: 'v', y1: domain[0], fill: 'var(--series-1)', fillOpacity: 0.08 }),
-      Plot.lineY(defined, { x: 'i', y: 'v', stroke: 'var(--series-1)', strokeWidth: 1.75 }),
+      Plot.areaY(data, { x: 'i', y: 'v', y1: domain[0], fill: 'var(--series-1)', fillOpacity: 0.08 }),
+      Plot.lineY(data, { x: 'i', y: 'v', stroke: 'var(--series-1)', strokeWidth: 1.75 }),
       Plot.dot(defined.slice(-1), { x: 'i', y: 'v', r: 3, fill: 'var(--series-1)' }),
       columns(defined, domain),
     ] });
@@ -97,14 +97,24 @@ function bars(rows, { domain, label = r => fmt(r.value), height = 26, width = 48
  * nav (optional, from a server that keeps many runs): { back?, branches?: [{ name, href, current }], runs?: [{ href, score, commit, branch, scoredAt, current }] }.
  */
 export function renderHtml(result, history = [], nav = {}) {
-  const runs = history.length ? history : [{ scoredAt: result.scoredAt, commit: result.commit, score: result.score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])) }];
+  const allRuns = history.length ? history : [{ scoredAt: result.scoredAt, commit: result.commit, score: result.score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])) }];
+  // Compare only the uninterrupted stretch measured under the current rubric.
+  const split = result.comparisonKey ? allRuns.findLastIndex(r => r.comparisonKey !== result.comparisonKey) + 1 : 0;
+  const runs = allRuns.slice(split);
+  if (!runs.length) runs.push({ scoredAt: result.scoredAt, score: result.score, dimensions: {}, layers: result.layers });
+  const legacy = !result.rubricVersion;
+  const outcomes = result.outcomes ?? [];
+  const statusOf = layer => layer?.passed === true ? 'Passed' : layer?.passed === false ? 'Failed' : 'Unmeasured';
+  const gaps = outcomes.filter(o => o.status === 'failed' || o.status === 'unobserved');
+  const next = gaps.find(o => o.status === 'failed') ?? gaps[0];
+  const observed = outcomes.filter(o => o.status === 'passed');
   const prev = runs.length >= 2 ? runs[runs.length - 2] : null;
   const D = result.dimensions;
   const total = result.measuredWeight || 1;
   const opportunities = Object.entries(D).filter(([, d]) => d.score !== null).map(([key, d]) => ({ name: NAMES[key] ?? d.name, value: (d.weight * (100 - d.score)) / total, tip: `${NAMES[key] ?? d.name}: ${d.detail}` }))
     .filter(l => l.value >= 0.5).sort((a, b) => b.value - a.value);
   const repoName = result.name ?? (String(result.repo ?? '').split('/').filter(s => s && s !== '.').pop() || 'repo');
-  const folders = Object.entries(result.folders ?? {}).map(([name, f]) => ({ name, value: f.score, tip: `${name}: ${f.tested} of ${f.exports} exports have Rules tests · ${f.reached} of ${f.files} files reached by a test` }))
+  const folders = Object.entries(result.folders ?? {}).map(([name, f]) => ({ name, value: f.score, tip: `${name}: ${f.tested} of ${f.exports} exports named in Rules text · ${f.reached} of ${f.files} files in the ${legacy ? 'test' : 'Rules'} import graph` }))
     .sort((a, b) => a.value - b.value);
   const entries = result.entryPoints ?? [];
   const areas = result.areas?.length ? result.areas : entries.length ? [{ name: 'Entry points', description: 'Routes and tools the scorer found. Group and describe them under "areas" in rules-and-journeys.json.', entryPoints: entries.map(e => ({ id: e.id, covered: e.covered })) }] : [];
@@ -115,9 +125,10 @@ export function renderHtml(result, history = [], nav = {}) {
     const d = D[key]; if (!d) return '';
     const series = runs.map((r, i) => i === runs.length - 1 ? d.score : r.dimensions?.[key] ?? null);
     return `<div class="card dim">
-      <div class="dim-top"><span class="dim-name">${esc(NAMES[key] ?? d.name)}<span class="info" tabindex="0" data-tip="${esc(`${EXPLAIN[key] ?? ''} Now: ${d.score === null ? d.reason ?? 'not measured' : d.detail} (weight ${d.weight})`)}" aria-label="What this measures">i</span></span>${dot(status(d.score))}</div>
-      <div class="dim-score"><b>${d.score === null ? '–' : fmt(d.score)}</b>${deltaTag(d.score, prev?.dimensions?.[key])}</div>
+      <div class="dim-top"><span class="dim-name">${esc(NAMES[key] ?? d.name)}<span class="info" tabindex="0" data-tip="${esc(`${legacy && key === 'journeyCoverage' ? 'Historical score based on route text matches.' : EXPLAIN[key] ?? ''} Now: ${d.score === null ? d.reason ?? 'not measured' : d.detail} (weight ${d.weight})`)}" aria-label="What this measures">i</span></span>${dot(status(d.score))}</div>
+      <div class="dim-score"><b>${d.score === null ? '–' : fmt(d.score)}</b>${key === 'speed' ? '' : deltaTag(d.score, prev?.dimensions?.[key])}</div>
       ${sparkline(series, { tips: series.map(runTip) })}
+      <details class="evidence"><summary>Evidence</summary><p>${esc(d.detail ?? d.reason)}</p></details>
     </div>`;
   };
   const layer = name => {
@@ -125,7 +136,7 @@ export function renderHtml(result, history = [], nav = {}) {
     const ms = runs.map((r, i) => i === runs.length - 1 ? l.ms ?? null : r.layers?.[name]?.ms ?? null), max = Math.max(...ms.filter(v => v !== null), 1);
     return `<div class="card dim">
       <div class="dim-top"><span class="dim-name">${name === 'rules' ? 'Rules' : 'Journeys'} tests<span class="info" tabindex="0" data-tip="${esc(`${l.files} test files · ${l.command ? `run with ${l.command}` : 'no command configured'}${l.passed === false ? ' · last run failed' : ''}`)}" aria-label="What this measures">i</span></span></div>
-      <div class="dim-score"><b>${fmt(l.tests)}</b><span class="unit">${l.ms !== undefined ? `${seconds(l.ms)} · ${fmt(l.msPerLoc ?? 0, 2)} ms/line` : 'not timed'}</span>${deltaTag(l.ms, prev?.layers?.[name]?.ms, { invert: true, unit: ' ms' })}</div>
+      <div class="dim-score"><b>${fmt(l.tests)}</b><span class="unit">${l.ms !== undefined ? `${seconds(l.ms)} · ${fmt(l.msPerLoc ?? 0, 2)} ms/line` : 'not timed'}</span></div>
       ${sparkline(ms, { domain: [0, max * 1.15], tips: ms.map((v, i) => `${v === null ? 'n/a' : seconds(v)} · ${ago(runs[i].scoredAt)}`) })}
     </div>`;
   };
@@ -187,9 +198,21 @@ h2:first-child { margin-top: 4px; }
 .card { background: var(--surface-1); border-radius: 14px; box-shadow: 0 0 0 1px var(--ring); padding: 16px 18px; }
 .label { font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 10px; }
 .muted { color: var(--text-muted); } .small { font-size: 12.5px; margin: 0; }
+.diagnostics { margin-top:12px; }
 .row { display: grid; gap: 12px; margin-bottom: 12px; }
-.combined { grid-template-columns: 220px 1fr 1fr; }
-@media (max-width: 980px) { .combined { grid-template-columns: 1fr 1fr; } .combined .headline { grid-column: 1 / -1; } }
+.combined { grid-template-columns: minmax(280px, 1.8fr) minmax(150px, .7fr) minmax(220px, 1.2fr); }
+.suite-line { display:flex; gap:8px 18px; flex-wrap:wrap; margin:4px 0 10px; }
+.outcome { display:grid; grid-template-columns:auto 1fr; align-items:baseline; gap:8px; padding:5px 0; }
+.state { font-size:12px; font-weight:650; color:var(--text-secondary); }
+.state.passed { color:var(--good-text); } .state.failed { color:var(--critical-text); }
+.next { border-top:1px solid var(--hairline); padding-top:8px; margin:8px 0 0; }
+details summary { cursor:pointer; font-size:13px; font-weight:600; }
+.evidence { color:var(--text-secondary); font-size:12px; } .evidence p { margin:4px 0; }
+.evidence summary { font-size:12px; font-weight:500; }
+.trend-note { font-size:12px; color:var(--text-muted); margin:0; }
+@media(max-width:640px){ main { padding:16px; } .combined .run-outcomes { grid-row:1; } .combined .headline .figure b { font-size:42px; } .findings li { display:block; overflow-wrap:anywhere; } }
+
+@media (max-width: 980px) { .combined { grid-template-columns: 1fr 1fr; } .combined .run-outcomes { grid-column: 1 / -1; } }
 @media (max-width: 640px) { .combined { grid-template-columns: 1fr; } }
 .cards { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .figure { display: flex; align-items: baseline; gap: 6px; }
@@ -240,7 +263,7 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
   <header class="top">
     <div>
       <h1>${esc(repoName)} <span class="muted">· tests</span></h1>
-      <div class="meta"><code>${esc(result.commit ?? '')}</code> · scored <span data-ago="${esc(new Date(result.scoredAt).toISOString())}">${esc(when(result.scoredAt))} UTC</span></div>
+      <div class="meta"><code>${esc(result.commit ?? '')}</code> ${result.dirty ? ' · local edits' : ''} ${result.runSource === 'deployment' ? ' · deployed commits' : result.runSource === 'local' ? ' · local run' : ''} · scored <span data-ago="${esc(new Date(result.scoredAt).toISOString())}">${esc(when(result.scoredAt))} UTC</span></div>
     </div>
     <button class="theme" type="button" id="theme">Theme</button>
   </header>
@@ -258,37 +281,42 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
   <div role="tabpanel" id="scoreboard" aria-labelledby="tab-scoreboard">
     <h2>Combined</h2>
     <div class="row combined">
+      <section class="card run-outcomes" aria-label="Suite results and outcomes">
+        <p class="label">Latest suite results</p>
+        <div class="suite-line">${['rules', 'journeys'].map(k => `<span><b>${k === 'rules' ? 'Rules' : 'Journeys'}</b> <span class="state ${statusOf(result.layers?.[k]).toLowerCase()}">${statusOf(result.layers?.[k])}</span></span>`).join('')}</div>
+        ${observed.map(o => `<div class="outcome"><span class="state passed" aria-label="Passed">✓</span><span>${esc(o.title)}</span></div>`).join('')}
+        ${next ? `<p class="next"><b>${next.status === 'failed' ? 'Failed outcome' : 'Next gap'}</b> · ${esc(next.title)}</p>` : !observed.length ? '<p class="trend-note">No outcome evidence recorded for this run.</p>' : ''}
+      </section>
       <div class="card headline">
         <p class="label">Score</p>
         <div class="figure"><b>${result.score}</b><span>/100</span></div>
-        ${deltaTag(result.score, prev?.score) || (runs.length < 2 ? '<span class="delta">first run</span>' : '')}
+        ${deltaTag(result.score, prev?.score) || (runs.length < 2 ? '<span class="delta">baseline</span>' : '')}
         ${result.squaredLoopFail ? '<p class="small">Capped at 50: a test runs in a squared loop.</p>' : ''}
       </div>
       <div class="card">
-        <p class="label">Trend</p>
+        <p class="label">Score trend</p>
+        <p class="trend-note">${runs.length} ${runs.length === 1 ? 'run' : 'runs'} · ${legacy ? 'earlier rubric' : 'comparable settings'}${split ? ` · ${split} earlier` : ''}</p>
         ${trendChart(runs)}
       </div>
-      <div class="card">
-        <p class="label">Opportunities</p>
-        ${bars(opportunities, { label: r => `+${fmt(r.value)}`, width: 340, height: 24 })}
-      </div>
     </div>
-    <div class="row cards">${card('speed')}${card('determinism')}</div>
-
+    <details class="card"><summary>Opportunities · available score points</summary>${bars(opportunities, { label: r => `+${fmt(r.value)}`, width: 440, height: 26 })}</details>
+    <div class="row cards diagnostics">${card('speed')}${card('determinism')}${card('overtesting')}${card('undertesting')}</div>
     <h2>Rules</h2>
-    <div class="row cards">${layer('rules')}${card('rulesPurity')}${card('overtesting')}${card('undertesting')}</div>
+    <div class="row cards">${layer('rules')}${card('rulesPurity')}</div>
     ${folders.length ? `<div class="row"><div class="card">
-      <p class="label">Rules coverage by folder</p>
+      <p class="label">${legacy ? 'Historical folder scores' : 'Rules evidence by core folder'}</p>
+      <p class="trend-note">${legacy ? 'Legacy import and export-name score' : 'Export names in Rules text and files in the Rules import graph'} · Mutation evidence: ${result.mutation ? esc(fmt(result.mutation.score) + '%') : 'unmeasured'}</p>
       ${bars(folders, { domain: [0, 100], width: 1000, height: 26 })}
     </div></div>` : ''}
 
     <h2>Journeys</h2>
     <div class="row cards">${layer('journeys')}${card('journeyCoverage')}${card('freshness')}</div>
+    ${outcomes.length ? `<div class="row"><section class="card"><p class="label">User outcomes</p>${outcomes.map(o => `<div class="outcome"><span class="state ${esc(o.status)}">${esc(o.status)}</span><div>${esc(o.title)}${o.routes?.length ? `<details class="evidence"><summary>Observed routes (${o.routes.length})</summary>${o.routes.map(r => `<p><code>${esc(r)}</code></p>`).join('')}</details>` : ''}</div></div>`).join('')}</section></div>` : ''}
     ${areas.length ? `<div class="row"><div class="card">
-      <p class="label">What the Journeys walk through</p>
+      <p class="label">${legacy ? 'Route mentions · historical static scan' : 'Route inventory · observed during Journeys'}</p>
       <div class="areas">${areas.map(a => { const on = a.entryPoints.filter(e => e.covered).length;
         return `<div class="area"><span class="name">${esc(a.name)}</span>
-          <span class="count"><b>${on}/${a.entryPoints.length}</b><span class="squares">${a.entryPoints.map(e => `<span class="${e.covered ? 'on' : ''}" tabindex="0" data-tip="${esc(`${e.id} · ${e.covered ? 'on a Journey' : 'no Journey yet'}`)}" aria-label="${esc(`${e.id}: ${e.covered ? 'on a Journey' : 'no Journey yet'}`)}"></span>`).join('')}</span></span>
+          <span class="count"><b>${on}/${a.entryPoints.length}</b><span class="squares">${a.entryPoints.map(e => `<span class="${e.covered ? 'on' : ''}" tabindex="0" data-tip="${esc(`${e.id} · ${e.covered ? legacy ? 'mentioned' : 'observed' : legacy ? 'no mention' : 'no observation'}`)}" aria-label="${esc(`${e.id}: ${e.covered ? legacy ? 'mentioned' : 'observed' : legacy ? 'no mention' : 'no observation'}`)}"></span>`).join('')}</span></span>
           <span class="desc">${esc(a.description)}</span></div>`; }).join('')}</div>
     </div></div>` : ''}
   </div>
@@ -308,12 +336,12 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
 <div id="tip" role="tooltip"></div>
 <script>
 (() => {
-  const root = document.documentElement, key = 'rj-theme', saved = localStorage.getItem(key);
+  const root = document.documentElement, key = 'rj-theme', saved = (() => { try { return localStorage.getItem(key); } catch { return null; } })();
   if (saved) root.dataset.theme = saved;
   const button = document.getElementById('theme');
   const label = () => { const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; button.textContent = dark ? 'Light' : 'Dark'; return dark; };
   label();
-  button.addEventListener('click', () => { root.dataset.theme = label() ? 'light' : 'dark'; localStorage.setItem(key, root.dataset.theme); label(); });
+  button.addEventListener('click', () => { root.dataset.theme = label() ? 'light' : 'dark'; try { localStorage.setItem(key, root.dataset.theme); } catch {} label(); });
   // "3 hours ago", computed now, so the page stays right as it ages.
   const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
   const ago = iso => { const s = (Date.parse(iso) - Date.now()) / 1000, a = Math.abs(s);
