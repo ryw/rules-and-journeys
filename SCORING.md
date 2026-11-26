@@ -177,6 +177,9 @@ Put an optional `rules-and-journeys.json` at the repo root:
   "forbiddenModules": ["(^|/)(database|config)\\.ts$", "-store\\.ts$"],
   "entryPoints": ["recruit_hero", "enter_module"],
   "commands": { "rules": "pnpm test", "journeys": "pnpm test:journeys" },
-  "recentDays": 30
+  "recentDays": 30,
+  "areas": [
+    { "name": "Checkout", "description": "A shopper pays for their cart.", "entryPoints": ["POST /api/checkout", "POST /api/cart/"] }
+  ]
 }
 ```

@@ -248,8 +248,19 @@ for (const file of sourceFiles) {
   for (const m of raw.matchAll(/\b(?:registerTool|\.tool)\(\s*['"]([\w.-]+)['"]/g)) entries.set(`tool ${m[1]}`, { kind: 'tool', key: m[1], file });
 }
 for (const e of config.entryPoints ?? []) entries.set(e, { kind: 'configured', key: e, file: configPath });
+// Areas (config "areas"): the app's entry points grouped and described in plain English. An area's entry is a detected id
+// ("POST /api/guest") or a URL fragment the scorer can't find itself ("/api/me/game/"), covered when a Journey contains it.
+for (const area of config.areas ?? []) for (const e of area.entryPoints ?? []) if (!entries.has(e)) entries.set(e, { kind: 'configured', key: e.replace(/^(GET|POST|PUT|PATCH|DELETE|ALL) /, ''), file: configPath });
 const journeyText = journeyCorpus.map(read).join('\n') + journeyFiles.filter(f => /\.(feature|md)$/.test(f)).map(read).join('\n');
 const entryList = [...entries].map(([id, e]) => ({ id, ...e, covered: journeyText.includes(e.key) }));
+const byId = new Map(entryList.map(e => [e.id, e])), assigned = new Set();
+const areas = (config.areas ?? []).map(a => {
+  const points = (a.entryPoints ?? []).map(id => byId.get(id)).filter(Boolean);
+  for (const p of points) assigned.add(p.id);
+  return { name: String(a.name ?? 'Area'), description: String(a.description ?? ''), entryPoints: points.map(p => ({ id: p.id, covered: p.covered })) };
+});
+const unassigned = entryList.filter(e => !assigned.has(e.id));
+if (areas.length && unassigned.length) areas.push({ name: 'Other', description: 'Entry points not in any area of rules-and-journeys.json.', entryPoints: unassigned.map(p => ({ id: p.id, covered: p.covered })) });
 
 // ---------- Journey freshness ----------
 const fresh = [];
@@ -337,7 +348,7 @@ let sha = null; try { sha = execFileSync('git', ['-C', repo, 'rev-parse', '--sho
 const result = {
   name: basename(repo), repo: relative(process.cwd(), repo) || '.', commit: sha, scoredAt: new Date().toISOString(), score, squaredLoopFail: squared > 0,
   measuredWeight, dimensions: Object.fromEntries(Object.entries(dims).map(([k, d]) => [k, { name: NAMES[k], weight: WEIGHTS[k], ...d, score: d.score === null ? null : Math.round(d.score) }])),
-  layers, sourceLoc, folders, entryPoints: entryList, findings,
+  layers, sourceLoc, folders, entryPoints: entryList, areas, findings,
 };
 
 if (flag('--json')) { console.log(JSON.stringify(result, null, 2)); process.exit(0); }
