@@ -8,13 +8,14 @@
     "rules-and-journeys": "scorer/score.mjs"
   },
   "files": [
-    "scorer/score.mjs",
-    "scorer/report-html.mjs",
+    "LICENSE",
     "README.md",
     "SCORING.md",
-    "skills",
     "bot",
-    "LICENSE"
+    "scorer/report-html.mjs",
+    "scorer/score.mjs",
+    "server",
+    "skills"
   ],
   "engines": {
     "node": ">=22"
@@ -25,5 +26,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ryw/rules-and-journeys.git"
+  },
+  "exports": {
+    "./server": "./server/index.mjs",
+    "./report": "./scorer/report-html.mjs",
+    "./package.json": "./package.json"
   }
 }

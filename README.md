@@ -69,6 +69,24 @@ Get the tool: `git clone https://github.com/ryw/rules-and-journeys` (Node 22 or 
 2. **Give your agent the skill.** [skills/test-manager](skills/test-manager/SKILL.md) assesses, reshapes tests a folder at a time, writes and rewrites Journeys, and refreshes recordings. There are recipes for TypeScript, Ruby and Python.
 3. **Schedule the test manager.** [bot/test-manager.md](bot/test-manager.md) runs the skill on a schedule of its own and opens one small PR per run with the score change.
 
+## Keep the history: mount the reports in your app
+
+Score history doesn't belong in your repo. Keep it in your own Postgres and mount the reports inside your app, behind your
+own admin authentication, the way Sidekiq's web UI mounts into a Rails app. No new service, no new accounts:
+
+```js
+import { createReports, recordRun, schemaSql } from 'rules-and-journeys/server';
+
+await pool.query(schemaSql());                                  // once, or copy it into a migration (schema "rj")
+app.use('/admin/tests', requireAdmin, createReports({ db: pool }));
+
+// In CI, after scoring main:
+await recordRun(pool, JSON.parse(readFileSync('reports/tests/score.json', 'utf8')), { branch: 'main' });
+```
+
+`db` is anything with `query(text, params)`, such as a node-postgres `Pool`. The pages set their own strict
+Content-Security-Policy. Prefer HTTP uploads? `createIngest({ db, token })` is a token-protected `POST` endpoint.
+
 ## Signed
 
 1. [@rywalker](https://twitter.com/rywalker)
