@@ -74,3 +74,7 @@ Get the tool: `git clone https://github.com/ryw/rules-and-journeys` (Node 22 or 
 1. [@rywalker](https://twitter.com/rywalker)
 
 _(PR your signature to the bottom of this list, if you're in)_
+
+## License
+
+[MIT](LICENSE). Use it, fork it, host it.

@@ -2,6 +2,7 @@
   "name": "rules-and-journeys",
   "version": "0.1.0",
   "description": "Testing principles, a 0–100 scorer and a test-manager skill for code written with AI agents.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "rules-and-journeys": "scorer/score.mjs"
@@ -12,7 +13,8 @@
     "README.md",
     "SCORING.md",
     "skills",
-    "bot"
+    "bot",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22"
