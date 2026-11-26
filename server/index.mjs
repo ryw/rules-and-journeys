@@ -141,7 +141,7 @@ export function createReports({ db, schema = 'rj', defaultBranch = 'main', baseP
       });
       return send(res, 200, html);
     } catch (error) {
-      if (next) next(error); else { res.statusCode = 500; res.end('Internal error'); }
+      if (next) next(error); else { console.error('rules-and-journeys reports:', error); res.statusCode = 500; res.end('Internal error'); }
     }
   };
 }
