@@ -19,7 +19,7 @@ Pick the stack recipe before you start: [TypeScript](references/typescript.md), 
 
 ### assess
 
-1. Run `node <path-to>/scorer/score.mjs <repo>` (the scorer ships with this skill's repo: `git clone https://github.com/ryw/rules-and-journeys`; to install the skill, copy `skills/test-manager` into your agent's skills folder), or add `--run` when layer commands are configured. If the repo has no `rules-and-journeys.json`, write one: name the core (pure) source, the entry points the scorer can't find, and the commands for each layer.
+1. Run `node <path-to>/scorer/score.mjs <repo>` (the scorer ships with this skill's repo: `git clone https://github.com/ryw/rules-and-journeys`; to install the skill, copy `skills/test-manager` into your agent's skills folder), or add `--run` when layer commands are configured. If the repo has no `rules-and-journeys.json`, write one: name the core (pure) source, the outcomes to observe, the entry points the scorer can't find, and the commands for each layer.
 2. Read the findings. The scorer is a heuristic, so confirm each finding you plan to act on by reading the code. Note false positives in the PR rather than gaming the scorer.
 3. Write a short summary: the headline, the measured weight, the three lowest folders and the one change that would move the score most. This is the opening of every PR you make.
 
@@ -36,6 +36,8 @@ Reshape one folder per run, starting with the lowest-scoring folder that has rec
    - Snapshots of internals become readable assertions.
    - Per-record content tests (one per catalog entry) become one test of the rule.
 4. **Never delete a test without naming its replacement.** In the PR, list each removed test next to the Rules test or Journey that now covers its fact, or say why the fact no longer matters.
+Before proposing another case, identify the behavior it proves and compare it with both layers. A repeated assertion may be essential to a Journey's outcome. Flag duplication when removing the assertion would leave the same behavioral evidence, and cite both cases. Treat source-name matches and import reach as leads for inspection.
+
 5. **Prove the new tests can fail.** Break the rule under test for a moment (flip a comparison, change a constant), watch a test go red, then restore it. If Stryker is set up, run it on the folder and cite the mutation score.
 6. Keep each PR small: one folder, and a diff a reviewer can read in a few minutes.
 

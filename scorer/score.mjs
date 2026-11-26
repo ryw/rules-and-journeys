@@ -10,7 +10,11 @@
 //         history.json keeps the last 200 headline scores, for the trend line in SCOREBOARD.html.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, globSync, mkdirSync, mkdtempSync, rmSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { readTestFiles, folderOf } from './test-results.mjs';
+import { reviewItems } from './review-items.mjs';
+import { formatTiming, speedDetail } from './timing.mjs';
 import { renderHtml } from './report-html.mjs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 
@@ -70,7 +74,9 @@ const journeyFiles = all.filter(f => !excluded(f) && isJourney(f));
 const rulesFiles = all.filter(f => !excluded(f) && isRule(f) && !journeyFiles.includes(f));
 const testFiles = [...rulesFiles, ...journeyFiles];
 const sourceFiles = all.filter(f => !excluded(f) && isSource(f) && !testFiles.includes(f) && /\.(t|j)sx?$|\.m?js$|\.cjs$/.test(f));
-const coreFiles = config.core ? sourceFiles.filter(matcher(config.core)) : sourceFiles;
+const coreExcluded = matcher(config.coreExclude);
+const coreFiles = (config.core ? sourceFiles.filter(matcher(config.core)) : sourceFiles).filter(f => !coreExcluded(f));
+const coreSet = new Set(coreFiles);
 const read = file => { try { return readFileSync(join(repo, file), 'utf8'); } catch { return ''; } };
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
@@ -136,8 +142,8 @@ function reachable(starts) {
 const isSourceFile = new Set(sourceFiles);
 // Test code: the test files plus support files they import that aren't source (builders, helpers, step definitions).
 const supportOf = files => [...reachable(files)].filter(f => !isSourceFile.has(f));
-const rulesCorpus = supportOf(rulesFiles), journeyCorpus = supportOf(journeyFiles), testCorpus = [...new Set([...rulesCorpus, ...journeyCorpus])];
-const reachedByTests = new Set([...reachable(testFiles)].filter(f => isSourceFile.has(f)));
+const rulesCorpus = supportOf(rulesFiles);
+const reachedByRules = reachable(rulesFiles);
 
 // ---------- findings ----------
 const findings = [];
@@ -184,7 +190,14 @@ for (const file of testFiles) {
   if (layer === 'rules' && tests > 20 && sourceNames.length > 0 && sourceNames.length <= 2) find('test-pile', file, 1, `${tests} tests on ${sourceNames.join(', ')}: prove the rule with representative cases.`, layer);
   if (layer === 'journeys') {
     const rulesImports = new Set(rulesFiles.flatMap(r => importsOfFile(r).map(i => resolveImport(r, i.spec)).filter(Boolean)));
-    for (const i of importsOfFile(file)) { const target = resolveImport(file, i.spec); if (target && isSourceFile.has(target) && rulesImports.has(target) && !/(^|\/)(index|app|server|main|routes?|mcp|api)\.(t|j)sx?$/.test(target)) find('journey-reaches-rules', file, 1, `Imports rule module ${target} directly: Journeys should enter through the app's entry points.`, layer); }
+    for (const imported of importsOfFile(file)) {
+      const target = resolveImport(file, imported.spec);
+      if (!target || !isSourceFile.has(target) || !rulesImports.has(target)) continue;
+      const setupNames = config.journeySetupImports?.[target] ?? [];
+      if (imported.names.length && imported.names.every(name => setupNames.includes(name))) continue;
+      if (!/(^|\/)(index|app|server|main|routes?|mcp|api)\.(t|j)sx?$/.test(target))
+        find('journey-reaches-rules', file, 1, `Imports rule module ${target} directly: Journeys should enter through the app's entry points.`, layer);
+    }
   }
   // Determinism
   const fake = /useFakeTimers|setSystemTime|freezeTime|seed/i.test(raw);
@@ -220,16 +233,16 @@ for (const file of rulesFiles) {
 // ---------- undertesting ----------
 const exportRe = /^[ \t]*export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|const|let|class)\s+(\w+)/gm;
 const exportsOf = file => [...read(file).matchAll(exportRe)].map(m => ({ name: m[1], line: lineOf(read(file), m.index) }));
-const rulesText = rulesCorpus.map(read).join('\n'), testText = testCorpus.map(read).join('\n');
+const rulesText = rulesCorpus.map(read).join('\n');
 const mentioned = (name, text) => new RegExp(`\\b${name}\\b`).test(text);
 const coreExports = coreFiles.flatMap(f => exportsOf(f).map(e => ({ ...e, file: f })));
 const coreTested = coreExports.filter(e => mentioned(e.name, rulesText));
 let recent = null;
 try {
   const log = execFileSync('git', ['-C', repo, 'log', `--since=${recentDays}.days`, '--name-only', '--pretty=format:'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  recent = [...new Set(log.split('\n').map(s => s.trim()).filter(f => isSourceFile.has(f)))];
+  recent = [...new Set(log.split('\n').map(s => s.trim()).filter(f => coreSet.has(f)))];
 } catch { recent = null; }
-const recentUntouched = recent ? recent.filter(f => !reachedByTests.has(f)) : [];
+const recentUntouched = recent ? recent.filter(f => !reachedByRules.has(f)) : [];
 const journeyCode = journeyFiles.filter(f => !/\.(feature|md)$/.test(f));
 const journeysWithOutcome = journeyCode.filter(f => /\bexpect\s*\(|\bassert\w*\s*\(|\.should\b|\bThen\b/.test(read(f)));
 let mutation = null;
@@ -249,19 +262,8 @@ for (const file of sourceFiles) {
 }
 for (const e of config.entryPoints ?? []) entries.set(e, { kind: 'configured', key: e, file: configPath });
 // Areas (config "areas"): the app's entry points grouped and described in plain English. An area's entry is a detected id
-// ("POST /api/guest") or a URL fragment the scorer can't find itself ("/api/me/game/"), covered when a Journey contains it.
+// ("POST /api/guest") or a URL fragment the scorer can't find itself ("/api/me/game/"), matched when a Journey observes that exact method and route.
 for (const area of config.areas ?? []) for (const e of area.entryPoints ?? []) if (!entries.has(e)) entries.set(e, { kind: 'configured', key: e.replace(/^(GET|POST|PUT|PATCH|DELETE|ALL) /, ''), file: configPath });
-const journeyText = journeyCorpus.map(read).join('\n') + journeyFiles.filter(f => /\.(feature|md)$/.test(f)).map(read).join('\n');
-const entryList = [...entries].map(([id, e]) => ({ id, ...e, covered: journeyText.includes(e.key) }));
-const byId = new Map(entryList.map(e => [e.id, e])), assigned = new Set();
-const areas = (config.areas ?? []).map(a => {
-  const points = (a.entryPoints ?? []).map(id => byId.get(id)).filter(Boolean);
-  for (const p of points) assigned.add(p.id);
-  return { name: String(a.name ?? 'Area'), description: String(a.description ?? ''), entryPoints: points.map(p => ({ id: p.id, covered: p.covered })) };
-});
-const unassigned = entryList.filter(e => !assigned.has(e.id));
-if (areas.length && unassigned.length) areas.push({ name: 'Other', description: 'Entry points not in any area of rules-and-journeys.json.', entryPoints: unassigned.map(p => ({ id: p.id, covered: p.covered })) });
-
 // ---------- Journey freshness ----------
 const fresh = [];
 for (const file of journeyFiles) {
@@ -281,12 +283,61 @@ for (const file of journeyFiles) {
 const loc = file => read(file).split('\n').filter(l => l.trim() && !/^\s*(\/\/|\*|\/\*)/.test(l)).length;
 const sourceLoc = sourceFiles.reduce((n, f) => n + loc(f), 0);
 const timings = {};
-if (flag('--run')) for (const layer of ['rules', 'journeys']) {
-  const command = config.commands?.[layer]; if (!command) continue;
-  const started = performance.now(), result = spawnSync(command, { cwd: repo, shell: true, stdio: 'ignore', env: process.env });
-  const ms = performance.now() - started;
-  timings[layer] = { command, ms: Math.round(ms), passed: result.status === 0, msPerLoc: sourceLoc ? ms / sourceLoc : null };
+
+const runnerFiles = {};
+const goals = config.outcomes ?? [];
+const ids = new Set();
+for (const goal of goals) {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(goal.id) || !goal.title || ids.has(goal.id)) throw new Error('Each configured outcome needs a unique slug and title.');
+  ids.add(goal.id);
 }
+const observations = new Map();
+if (flag('--run')) {
+  const evidenceDir = mkdtempSync(join(tmpdir(), 'rj-evidence-'));
+  try {
+    for (const layer of ['rules', 'journeys']) {
+      const command = config.commands?.[layer];
+      if (!command) continue;
+      const testReport = join(evidenceDir, layer, 'cases.json');
+      mkdirSync(dirname(testReport));
+      const env = { ...process.env, RJ_TEST_REPORT: testReport };
+      if (layer === 'journeys') env.RJ_EVIDENCE_DIR = evidenceDir;
+      const started = performance.now();
+      const child = spawnSync(command, { cwd: repo, shell: true, stdio: ['ignore', 2, 2],
+        env });
+      const ms = performance.now() - started;
+      timings[layer] = { command, ms: Math.round(ms), passed: child.status === 0, msPerLoc: sourceLoc ? ms / sourceLoc : null };
+      if (existsSync(testReport)) {
+        runnerFiles[layer] = readTestFiles(JSON.parse(readFileSync(testReport, 'utf8')), repo);
+        for (const file of runnerFiles[layer]) {
+          if (!rulesFiles.includes(file.path) || layer !== 'rules') continue;
+          const sources = importsOfFile(file.path).map(i => resolveImport(file.path, i.spec)).filter(path => coreSet.has(path));
+          file.coreSources = [...new Set(sources)].sort();
+        }
+      }
+    }
+    for (const goal of goals) {
+      const file = join(evidenceDir, goal.id + '.json');
+      if (!existsSync(file)) continue;
+      const evidence = JSON.parse(readFileSync(file, 'utf8'));
+      if (!['passed', 'failed'].includes(evidence.status) || !Array.isArray(evidence.routes) || evidence.routes.some(r => typeof r !== 'string'))
+        throw new Error('Invalid Journey evidence for ' + goal.id);
+      observations.set(goal.id, { status: evidence.status, routes: [...new Set(evidence.routes)].sort() });
+    }
+  } finally { rmSync(evidenceDir, { recursive: true, force: true }); }
+}
+const outcomes = goals.map(({ id, title }) => ({ id, title, ...(observations.get(id) ?? { status: timings.journeys ? 'unobserved' : 'unmeasured', routes: [] }) }));
+const observedRoutes = new Set(outcomes.flatMap(o => o.routes));
+const entryList = [...entries].map(([id, e]) => ({ id, ...e, covered: observedRoutes.has(id) }));
+const byId = new Map(entryList.map(e => [e.id, e])), assigned = new Set();
+const areas = (config.areas ?? []).map(a => {
+  const points = (a.entryPoints ?? []).map(id => byId.get(id)).filter(Boolean);
+  for (const p of points) assigned.add(p.id);
+  return { name: String(a.name ?? 'Area'), description: String(a.description ?? ''), entryPoints: points.map(p => ({ id: p.id, covered: p.covered })) };
+});
+const unassigned = entryList.filter(e => !assigned.has(e.id));
+if (areas.length && unassigned.length) areas.push({ name: 'Other', description: 'Entry points not in any area of rules-and-journeys.json.', entryPoints: unassigned.map(p => ({ id: p.id, covered: p.covered })) });
+
 const curve = (x, good, bad) => x <= good ? 100 : x >= bad ? 0 : (100 * (Math.log(bad) - Math.log(x))) / (Math.log(bad) - Math.log(good));
 
 // ---------- dimensions ----------
@@ -297,9 +348,9 @@ const dims = {};
 dims.rulesPurity = rulesFiles.length ? { score: (100 * (rulesFiles.length - impureRules.length)) / rulesFiles.length, detail: `${rulesFiles.length - impureRules.length} of ${rulesFiles.length} Rules test files are pure` } : na('no Rules tests');
 {
   const parts = [];
-  if (timings.rules) parts.push({ w: 7, s: timings.rules.passed ? curve(timings.rules.msPerLoc, 0.05, 2) : 0, d: `Rules ${timings.rules.ms} ms (${timings.rules.msPerLoc.toFixed(3)} ms/LOC)${timings.rules.passed ? '' : ', FAILED'}` });
-  if (timings.journeys) parts.push({ w: 3, s: timings.journeys.passed ? curve(timings.journeys.msPerLoc, 0.5, 20) : 0, d: `Journeys ${timings.journeys.ms} ms (${timings.journeys.msPerLoc.toFixed(3)} ms/LOC)${timings.journeys.passed ? '' : ', FAILED'}` });
-  dims.speed = parts.length ? { score: parts.reduce((n, p) => n + p.w * p.s, 0) / parts.reduce((n, p) => n + p.w, 0), detail: parts.map(p => p.d).join('; ') }
+  if (timings.rules?.msPerLoc != null) parts.push({ w: 7, s: timings.rules.passed ? curve(timings.rules.msPerLoc, 0.05, 2) : 0 });
+  if (timings.journeys?.msPerLoc != null) parts.push({ w: 3, s: timings.journeys.passed ? curve(timings.journeys.msPerLoc, 0.5, 20) : 0 });
+  dims.speed = parts.length ? { score: parts.reduce((n, p) => n + p.w * p.s, 0) / parts.reduce((n, p) => n + p.w, 0), detail: speedDetail(timings) }
     : na(flag('--run') ? 'no layer commands in rules-and-journeys.json' : 'not run (pass --run)');
 }
 const squared = count('squared-loop');
@@ -308,16 +359,18 @@ dims.overtesting = testFiles.length ? { score: squared ? 0 : clamp(100 - 10 * co
 {
   const parts = [];
   if (coreExports.length) parts.push({ w: 40, s: (100 * coreTested.length) / coreExports.length, d: `${coreTested.length} of ${coreExports.length} core exports named in Rules tests` });
-  if (recent && recent.length) parts.push({ w: 25, s: (100 * (recent.length - recentUntouched.length)) / recent.length, d: `${recent.length - recentUntouched.length} of ${recent.length} source files changed in ${recentDays} days are reached by a test` });
+  if (recent && recent.length) parts.push({ w: 25, s: (100 * (recent.length - recentUntouched.length)) / recent.length, d: `${recent.length - recentUntouched.length} of ${recent.length} changed core files in the Rules import graph (${recentDays} days)` });
   if (journeyCode.length) parts.push({ w: 10, s: (100 * journeysWithOutcome.length) / journeyCode.length, d: `${journeysWithOutcome.length} of ${journeyCode.length} Journeys check an outcome` });
   if (mutation) parts.push({ w: 25, s: mutation.score, d: `mutation score ${mutation.score.toFixed(1)}% (${mutation.killed}/${mutation.total} killed)` });
   dims.undertesting = parts.length ? { score: parts.reduce((n, p) => n + p.w * p.s, 0) / parts.reduce((n, p) => n + p.w, 0), detail: parts.map(p => p.d).join('; ') + (mutation ? '' : '; mutation score n/a (no reports/mutation/mutation.json)') } : na('no source exports or history found');
 }
-dims.journeyCoverage = entryList.length ? { score: (100 * entryList.filter(e => e.covered).length) / entryList.length, detail: `${entryList.filter(e => e.covered).length} of ${entryList.length} entry points appear in a Journey${journeyFiles.length ? '' : ' (no Journeys yet)'}` }
-  : na('no entry points detected (list them in rules-and-journeys.json "entryPoints")');
+const passedGoals = outcomes.filter(o => o.status === 'passed').length;
+dims.journeyCoverage = goals.length && timings.journeys
+  ? { score: 100 * passedGoals / goals.length, detail: `${passedGoals} of ${goals.length} configured outcomes passed in this run` }
+  : na(goals.length ? 'Journeys were not run' : 'no player outcomes configured');
 const nondet = count('nondeterminism');
 dims.determinism = testFiles.length ? { score: clamp(100 - 10 * nondet), detail: `${nondet} nondeterminism findings (static only)` } : na('no tests');
-dims.freshness = fresh.length ? { score: (100 * fresh.filter(f => f.fresh).length) / fresh.length, detail: `${fresh.filter(f => f.fresh).length} of ${fresh.length} Journeys rewritten since their area last changed` }
+dims.freshness = fresh.length ? { score: (100 * fresh.filter(f => f.fresh).length) / fresh.length, detail: `${fresh.filter(f => f.fresh).length} of ${fresh.length} recorded source hashes match` }
   : na(journeyFiles.length ? 'no Journey records an area and sourceHash' : 'no Journeys');
 
 const WEIGHTS = { rulesPurity: 15, speed: 10, overtesting: 25, undertesting: 25, journeyCoverage: 15, determinism: 5, freshness: 5 };
@@ -331,27 +384,45 @@ score = Math.round(score);
 // ---------- per layer and per folder ----------
 const layers = Object.fromEntries(['rules', 'journeys'].map(layer => {
   const files = layer === 'rules' ? rulesFiles : journeyFiles;
-  return [layer, { files: files.length, tests: files.reduce((n, f) => n + countTests(scrub(read(f))), 0), findings: findings.filter(f => f.layer === layer).length, ...(timings[layer] ?? {}) }];
+  const testFiles = runnerFiles[layer];
+  const tests = testFiles ? testFiles.reduce((n, f) => n + f.cases.length, 0) : files.reduce((n, f) => n + countTests(scrub(read(f))), 0);
+  return [layer, { files: testFiles?.length ?? files.length, tests, testFiles, findings: findings.filter(f => f.layer === layer).length, ...(timings[layer] ?? {}) }];
 }));
-const folderOf = file => { const parts = file.split('/'); return parts.length > 2 ? parts.slice(0, 2).join('/') : parts.slice(0, -1).join('/') || '.'; };
+
 const folders = {};
-for (const file of sourceFiles) {
+for (const file of coreFiles) {
   const f = folders[folderOf(file)] ??= { files: 0, loc: 0, exports: 0, tested: 0, reached: 0, recentUntouched: 0 };
   const ex = exportsOf(file);
   f.files++; f.loc += loc(file); f.exports += ex.length; f.tested += ex.filter(e => mentioned(e.name, rulesText)).length;
-  if (reachedByTests.has(file)) f.reached++;
+  if (reachedByRules.has(file)) f.reached++;
   if (recentUntouched.includes(file)) f.recentUntouched++;
 }
 for (const f of Object.values(folders)) f.score = Math.round(0.6 * (f.exports ? (100 * f.tested) / f.exports : 0) + 0.4 * ((100 * f.reached) / f.files));
 
 let sha = null; try { sha = execFileSync('git', ['-C', repo, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* not a git repo */ }
+const rubricVersion = 2;
+const configHash = createHash('sha256').update(JSON.stringify(config)).update(String(recentDays)).digest('hex').slice(0, 16);
+const comparisonKey = [rubricVersion, configHash, measuredWeight, !!mutation, !!recent?.length, ...Object.keys(timings)].join('/');
+let dirty = null;
+if (sha) dirty = !!execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }).trim();
+let sourceUrl;
+if (sha && dirty === false) {
+  const origin = spawnSync('git', ['-C', repo, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout?.trim();
+  const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(origin ?? '');
+  if (match) sourceUrl = `https://github.com/${match[1]}/blob/${sha}`;
+}
 const result = {
+  sourceUrl,
+  rubricVersion, configHash, comparisonKey, dirty, outcomes, mutation,
   name: basename(repo), repo: relative(process.cwd(), repo) || '.', commit: sha, scoredAt: new Date().toISOString(), score, squaredLoopFail: squared > 0,
   measuredWeight, dimensions: Object.fromEntries(Object.entries(dims).map(([k, d]) => [k, { name: NAMES[k], weight: WEIGHTS[k], ...d, score: d.score === null ? null : Math.round(d.score) }])),
   layers, sourceLoc, folders, entryPoints: entryList, areas, findings,
 };
 
-if (flag('--json')) { console.log(JSON.stringify(result, null, 2)); process.exit(0); }
+result.reviewItems = reviewItems(result, Object.groupBy(recentUntouched, folderOf));
+
+if (flag('--require-pass') && (!timings.rules?.passed || !timings.journeys?.passed)) process.exitCode = 1;
+if (flag('--json')) { console.log(JSON.stringify(result, null, 2)); process.exit(process.exitCode ?? 0); }
 
 // ---------- SCOREBOARD.md ----------
 const md = [];
@@ -360,13 +431,19 @@ md.push(`Scored ${result.scoredAt.slice(0, 10)}${sha ? ` at ${sha}` : ''}. Measu
 md.push('| Dimension | Weight | Score | Detail |', '| --- | ---: | ---: | --- |');
 for (const [k, d] of Object.entries(result.dimensions)) md.push(`| ${d.name} | ${d.weight} | ${d.score === null ? 'n/a' : d.score} | ${d.score === null ? d.reason : d.detail} |`);
 md.push('', '## Layers', '', '| Layer | Files | Tests | Findings | Time |', '| --- | ---: | ---: | ---: | --- |');
-for (const [name, l] of Object.entries(layers)) md.push(`| ${name} | ${l.files} | ${l.tests} | ${l.findings} | ${l.ms !== undefined ? `${l.ms} ms (${l.msPerLoc?.toFixed(3)} ms/LOC)` : 'not run'} |`);
-md.push('', `## Folders (${sourceFiles.length} source files, ${sourceLoc.toLocaleString('en-US')} lines)`, '', '| Folder | Files | Lines | Exports named in Rules tests | Reached by tests | Changed, untested | Score |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+for (const [name, l] of Object.entries(layers)) md.push(`| ${name} | ${l.files} | ${l.tests} | ${l.findings} | ${l.ms !== undefined ? formatTiming(l) : 'not run'} |`);
+md.push('', `## Folders (${sourceFiles.length} source files, ${sourceLoc.toLocaleString('en-US')} lines)`, '', '| Folder | Files | Lines | Exports named in Rules tests | In Rules import graph | Changed, outside graph | Score |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const [name, f] of Object.entries(folders).sort((a, b) => b[1].loc - a[1].loc).slice(0, 30)) md.push(`| ${name} | ${f.files} | ${f.loc} | ${f.tested}/${f.exports} | ${f.reached}/${f.files} | ${f.recentUntouched} | ${f.score} |`);
-if (entryList.length) { md.push('', `## Entry points (${entryList.filter(e => e.covered).length}/${entryList.length} on a Journey)`, ''); for (const e of entryList.slice(0, 40)) md.push(`- ${e.covered ? '✅' : '⬜'} \`${e.id}\` (${e.file})`); if (entryList.length > 40) md.push(`- …and ${entryList.length - 40} more`); }
-md.push('', `## Findings (${findings.length})`, '');
+if (outcomes.length) md.push('', '## Journey outcomes', '', ...outcomes.map(o => `- ${o.status}: ${o.title}`));
+if (entryList.length) { md.push('', `## Observed entry points (${entryList.filter(e => e.covered).length}/${entryList.length} observed)`, ''); for (const e of entryList.slice(0, 40)) md.push(`- ${e.covered ? '✅' : '⬜'} \`${e.id}\` (${e.file})`); if (entryList.length > 40) md.push(`- …and ${entryList.length - 40} more`); }
+md.push('', `## Findings (${findings.length + result.reviewItems.length})`, '');
 for (const f of findings.slice(0, 50)) md.push(`- **${f.check}** \`${f.file}:${f.line}\` ${f.message}`);
 if (findings.length > 50) md.push(`- …and ${findings.length - 50} more (score.json has all of them)`);
+for (const item of result.reviewItems) {
+  md.push(`- **${item.label}** ${item.message}`);
+  for (const path of item.paths ?? []) md.push(`  - \`${path}\``);
+}
+if (!findings.length && !result.reviewItems.length) md.push('No check violations or review leads were recorded.');
 md.push('', '_Heuristics, not proofs: see SCORING.md for how each number is measured._', '');
 const out = resolve(option('--out', repo));
 mkdirSync(out, { recursive: true });
@@ -376,7 +453,7 @@ writeFileSync(join(out, 'score.json'), JSON.stringify(result, null, 2));
 const historyPath = join(out, 'history.json');
 let history = [];
 try { history = JSON.parse(readFileSync(historyPath, 'utf8')); if (!Array.isArray(history)) history = []; } catch { history = []; }
-history.push({ scoredAt: result.scoredAt, commit: result.commit, score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])),
+history.push({ comparisonKey, scoredAt: result.scoredAt, commit: result.commit, score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])),
   layers: Object.fromEntries(Object.entries(result.layers).filter(([, l]) => l.ms !== undefined).map(([k, l]) => [k, { ms: l.ms }])) });
 history = history.slice(-200);
 writeFileSync(historyPath, JSON.stringify(history, null, 2));
