@@ -16,6 +16,8 @@
     "scorer/review-items.mjs",
     "scorer/score.mjs",
     "scorer/timing.mjs",
+    "scorer/test-results.mjs",
+    "scorer/test-explorer.mjs",
     "server",
     "skills"
   ],

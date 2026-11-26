@@ -12,6 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, globSync, mkdirSync, mkdtempSync, rmSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { readTestFiles, folderOf } from './test-results.mjs';
 import { reviewItems } from './review-items.mjs';
 import { formatTiming, speedDetail } from './timing.mjs';
 import { renderHtml } from './report-html.mjs';
@@ -282,6 +283,8 @@ for (const file of journeyFiles) {
 const loc = file => read(file).split('\n').filter(l => l.trim() && !/^\s*(\/\/|\*|\/\*)/.test(l)).length;
 const sourceLoc = sourceFiles.reduce((n, f) => n + loc(f), 0);
 const timings = {};
+
+const runnerFiles = {};
 const goals = config.outcomes ?? [];
 const ids = new Set();
 for (const goal of goals) {
@@ -295,11 +298,23 @@ if (flag('--run')) {
     for (const layer of ['rules', 'journeys']) {
       const command = config.commands?.[layer];
       if (!command) continue;
+      const testReport = join(evidenceDir, layer, 'cases.json');
+      mkdirSync(dirname(testReport));
+      const env = { ...process.env, RJ_TEST_REPORT: testReport };
+      if (layer === 'journeys') env.RJ_EVIDENCE_DIR = evidenceDir;
       const started = performance.now();
       const child = spawnSync(command, { cwd: repo, shell: true, stdio: ['ignore', 2, 2],
-        env: layer === 'journeys' ? { ...process.env, RJ_EVIDENCE_DIR: evidenceDir } : process.env });
+        env });
       const ms = performance.now() - started;
       timings[layer] = { command, ms: Math.round(ms), passed: child.status === 0, msPerLoc: sourceLoc ? ms / sourceLoc : null };
+      if (existsSync(testReport)) {
+        runnerFiles[layer] = readTestFiles(JSON.parse(readFileSync(testReport, 'utf8')), repo);
+        for (const file of runnerFiles[layer]) {
+          if (!rulesFiles.includes(file.path) || layer !== 'rules') continue;
+          const sources = importsOfFile(file.path).map(i => resolveImport(file.path, i.spec)).filter(path => coreSet.has(path));
+          file.coreSources = [...new Set(sources)].sort();
+        }
+      }
     }
     for (const goal of goals) {
       const file = join(evidenceDir, goal.id + '.json');
@@ -369,9 +384,11 @@ score = Math.round(score);
 // ---------- per layer and per folder ----------
 const layers = Object.fromEntries(['rules', 'journeys'].map(layer => {
   const files = layer === 'rules' ? rulesFiles : journeyFiles;
-  return [layer, { files: files.length, tests: files.reduce((n, f) => n + countTests(scrub(read(f))), 0), findings: findings.filter(f => f.layer === layer).length, ...(timings[layer] ?? {}) }];
+  const testFiles = runnerFiles[layer];
+  const tests = testFiles ? testFiles.reduce((n, f) => n + f.cases.length, 0) : files.reduce((n, f) => n + countTests(scrub(read(f))), 0);
+  return [layer, { files: testFiles?.length ?? files.length, tests, testFiles, findings: findings.filter(f => f.layer === layer).length, ...(timings[layer] ?? {}) }];
 }));
-const folderOf = file => { const parts = file.split('/'); return parts.length > 2 ? parts.slice(0, 2).join('/') : parts.slice(0, -1).join('/') || '.'; };
+
 const folders = {};
 for (const file of coreFiles) {
   const f = folders[folderOf(file)] ??= { files: 0, loc: 0, exports: 0, tested: 0, reached: 0, recentUntouched: 0 };
@@ -388,7 +405,14 @@ const configHash = createHash('sha256').update(JSON.stringify(config)).update(St
 const comparisonKey = [rubricVersion, configHash, measuredWeight, !!mutation, !!recent?.length, ...Object.keys(timings)].join('/');
 let dirty = null;
 if (sha) dirty = !!execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }).trim();
+let sourceUrl;
+if (sha && dirty === false) {
+  const origin = spawnSync('git', ['-C', repo, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout?.trim();
+  const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(origin ?? '');
+  if (match) sourceUrl = `https://github.com/${match[1]}/blob/${sha}`;
+}
 const result = {
+  sourceUrl,
   rubricVersion, configHash, comparisonKey, dirty, outcomes, mutation,
   name: basename(repo), repo: relative(process.cwd(), repo) || '.', commit: sha, scoredAt: new Date().toISOString(), score, squaredLoopFail: squared > 0,
   measuredWeight, dimensions: Object.fromEntries(Object.entries(dims).map(([k, d]) => [k, { name: NAMES[k], weight: WEIGHTS[k], ...d, score: d.score === null ? null : Math.round(d.score) }])),

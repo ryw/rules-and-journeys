@@ -3,6 +3,7 @@
 // one <style> block and one small <script> (theme toggle and tooltips), both allowed by hash. Colors are CSS variables,
 // so light and dark each get their own palette. All text from the scored repo is escaped; every value a tooltip shows is
 // also in the table view.
+import { testExplorer } from './test-explorer.mjs';
 import { reviewItems } from './review-items.mjs';
 import { formatDuration, formatTiming, speedDetail } from './timing.mjs';
 import * as Plot from '@observablehq/plot';
@@ -105,6 +106,7 @@ export function renderHtml(result, history = [], nav = {}) {
   if (!runs.length) runs.push({ scoredAt: result.scoredAt, score: result.score, dimensions: {}, layers: result.layers });
   const legacy = !result.rubricVersion;
   const outcomes = result.outcomes ?? [];
+  const explorer = testExplorer(result, esc);
   const statusOf = layer => layer?.passed === true ? 'Passed' : layer?.passed === false ? 'Failed' : 'Unmeasured';
   const gaps = outcomes.filter(o => o.status === 'failed' || o.status === 'unobserved');
   const next = gaps.find(o => o.status === 'failed') ?? gaps[0];
@@ -143,6 +145,7 @@ export function renderHtml(result, history = [], nav = {}) {
     return `<div class="card dim">
       <div class="dim-top"><span class="dim-name">${name === 'rules' ? 'Rules' : 'Journeys'} tests<span class="info" tabindex="0" data-tip="${esc(`${l.files} test files · ${l.command ? `run with ${l.command}` : 'no command configured'}${l.passed === false ? ' · last run failed' : ''}`)}" aria-label="What this measures">i</span></span></div>
       <div class="dim-score"><b>${fmt(l.tests)}</b><span class="unit">${formatTiming(l)}</span></div>
+      <a class="drill" href="#tests-${name}" aria-label="View ${name} tests">View tests</a>
       ${sparkline(ms, { domain: [0, max * 1.15], tips: ms.map((v, i) => `${v === null ? 'n/a' : formatDuration(v)} · ${ago(runs[i].scoredAt)}`) })}
     </div>`;
   };
@@ -237,16 +240,26 @@ details summary { cursor:pointer; font-size:13px; font-weight:600; }
 .dim-score { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; } .dim-score b { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
 .unit { font-size: 12px; color: var(--text-muted); }
 .spark-empty { height: 40px; display: grid; place-items: center start; color: var(--text-muted); font-size: 12px; }
-.areas { display: grid; gap: 0; }
-.area { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; align-items: center; padding: 11px 0; border-top: 1px solid var(--hairline); }
-.area:first-of-type { border-top: 0; padding-top: 2px; }
-.area .name { font-weight: 600; } .area .desc { grid-column: 1; font-size: 12.5px; color: var(--text-muted); }
-.area .count { grid-row: 1 / span 2; grid-column: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.area .count b { font-size: 13px; }
-.squares { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; max-width: 240px; }
-.squares span { width: 14px; height: 14px; border-radius: 4px; background: var(--track); outline: none; }
-.squares span.on { background: var(--good); }
-.squares span:focus-visible { box-shadow: 0 0 0 2px var(--series-1); }
+.drill, .test-file a, .folder-drill a, .area-drill a, .outcome a {color:var(--series-1); text-underline-offset:3px}
+.tabs {flex-wrap:wrap}
+.test-file, .case-row, .folder-drill, .area-drill {border-bottom:1px solid var(--hairline); padding:8px 0; overflow-wrap:anywhere}
+.test-file:last-child, .case-row:last-child, .area-drill:last-child {border-bottom:0}
+.test-file > summary, .case-row > summary, .folder-drill > summary, .area-drill > summary {display:grid;grid-template-columns:12px minmax(0,1fr) auto auto;align-items:baseline;gap:8px}
+.area-drill > summary {grid-template-columns:12px minmax(0,1fr) auto}
+.folder-drill > summary {grid-template-columns:12px minmax(100px,1fr) 2fr 30px}
+.folder-drill meter {width:100%;align-self:center;accent-color:var(--series-1)}
+.test-file > summary::before,.case-row > summary::before,.folder-drill > summary::before,.area-drill > summary::before {content:'▸';color:var(--text-muted)}
+details[open].test-file > summary::before,details[open].case-row > summary::before,details[open].folder-drill > summary::before,details[open].area-drill > summary::before {content:'▾'}
+.case-row,.case-body,.test-file > .evidence {margin-left:20px}
+.case-body p,.folder-drill p,.area-drill p,.outcome p {margin:6px 0}
+.test-filter {display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;font-weight:600}
+.test-filter input {padding:7px 10px;max-width:100%;background:var(--surface-1);color:var(--text-primary);border:1px solid var(--ring);border-radius:6px;font:inherit}
+.test-filter output,.test-file > summary > span:last-child {color:var(--text-secondary);font-weight:450}
+.case-time,.entry-row span {font-variant-numeric:tabular-nums;color:var(--text-muted)}
+.entry-row {display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+.observed-route {display:block}
+.error-text {color:var(--critical-text);white-space:pre-wrap}
+@media(max-width:580px){.test-file > summary,.case-row > summary {grid-template-columns:10px minmax(0,1fr) auto}.test-file > summary > :last-child,.case-row > summary > :last-child{grid-column:2/-1}.case-row,.case-body{margin-left:10px}}
 .findings { list-style: none; margin: 0; padding: 0; }
 .findings li { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 2px 14px; font-size: 13px; padding: 10px 0; border-top: 1px solid var(--hairline); }
 .findings li:first-child { border-top: 0; }
@@ -280,6 +293,7 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
 
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-scoreboard" aria-controls="scoreboard" aria-selected="true">Scoreboard</button>
+    <button role="tab" id="tab-tests" aria-controls="tests" aria-selected="false">Tests${explorer.count ? ` <span class="pill">${explorer.count}</span>` : ''}</button>
     <button role="tab" id="tab-findings" aria-controls="findings" aria-selected="false">Findings <span class="pill${findings.length || review.some(item => item.label.startsWith('Failed ')) ? ' hot' : ''}">${findingCount}</span></button>
     ${nav.runs?.length ? `<button role="tab" id="tab-runs" aria-controls="runs" aria-selected="false">Runs <span class="pill">${nav.runs.length}</span></button>` : ''}
   </div>
@@ -312,27 +326,38 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
     ${folders.length ? `<div class="row"><div class="card">
       <p class="label">${legacy ? 'Historical folder scores' : 'Rules evidence by core folder'}</p>
       <p class="trend-note">${legacy ? 'Legacy import and export-name score' : 'Export names in Rules text and files in the Rules import graph'} · Mutation evidence: ${result.mutation ? esc(fmt(result.mutation.score) + '%') : 'unmeasured'}</p>
-      ${bars(folders, { domain: [0, 100], width: 1000, height: 26 })}
+      ${folders.map(f => `<details class="folder-drill"><summary><b>${esc(f.name)}</b><meter min="0" max="100" value="${esc(f.value)}"></meter><b>${esc(f.value)}</b></summary>
+        <p>${esc(f.tip)}</p>${result.layers?.rules?.testFiles ? explorer.folderFiles(f.name) : '<p>Individual tests were not recorded for this run.</p>'}</details>`).join('')}
     </div></div>` : ''}
 
     <h2>Journeys</h2>
     <div class="row cards">${layer('journeys')}${card('journeyCoverage')}${card('freshness')}</div>
-    ${outcomes.length ? `<div class="row"><section class="card"><p class="label">User outcomes</p>${outcomes.map(o => `<div class="outcome"><span class="state ${esc(o.status)}">${esc(o.status)}</span><div>${esc(o.title)}${o.routes?.length ? `<details class="evidence"><summary>Observed routes (${o.routes.length})</summary>${o.routes.map(r => `<p><code>${esc(r)}</code></p>`).join('')}</details>` : ''}</div></div>`).join('')}</section></div>` : ''}
+    ${outcomes.length ? `<div class="row"><section class="card"><p class="label">User outcomes</p>${outcomes.map(o => `<div class="outcome"><span class="state ${esc(o.status)}">${esc(o.status)}</span><div>${esc(o.title)}${explorer.outcomeLinks([o.id])}${o.routes?.length ? `<details class="evidence"><summary>Observed routes (${o.routes.length})</summary>${o.routes.map(r => `<p><code>${esc(r)}</code></p>`).join('')}</details>` : ''}</div></div>`).join('')}</section></div>` : ''}
     ${areas.length ? `<div class="row"><div class="card">
       <p class="label">${legacy ? 'Route mentions · historical static scan' : 'Route inventory · observed during Journeys'}</p>
       <div class="areas">${areas.map(a => { const on = a.entryPoints.filter(e => e.covered).length;
-        return `<div class="area"><span class="name">${esc(a.name)}</span>
-          <span class="count"><b>${on}/${a.entryPoints.length}</b><span class="squares">${a.entryPoints.map(e => `<span class="${e.covered ? 'on' : ''}" tabindex="0" data-tip="${esc(`${e.id} · ${e.covered ? legacy ? 'mentioned' : 'observed' : legacy ? 'no mention' : 'no observation'}`)}" aria-label="${esc(`${e.id}: ${e.covered ? legacy ? 'mentioned' : 'observed' : legacy ? 'no mention' : 'no observation'}`)}"></span>`).join('')}</span></span>
-          <span class="desc">${esc(a.description)}</span></div>`; }).join('')}</div>
+        const ids = new Set(a.entryPoints.map(e => e.id));
+        const walked = outcomes.filter(o => o.routes?.some(route => ids.has(route)));
+        const linked = explorer.outcomeLinks(walked.map(o => o.id));
+        return `<details class="area-drill"><summary><b>${esc(a.name)}</b><span>${on}/${a.entryPoints.length} routes or tools</span></summary>
+          <p>${esc(a.description)}</p>
+          ${linked || (walked.length ? walked.map(o => `<p>${esc(o.title)}</p>`).join('') : '<p>No Journey outcome recorded a matching route or tool.</p>')}
+          ${a.entryPoints.map(e => `<div class="entry-row"><code>${esc(e.id)}</code><span>${legacy ? (e.covered ? 'Mentioned' : 'No mention') : (e.covered ? 'Observed' : 'Unobserved')}</span></div>`).join('')}
+        </details>`; }).join('')}</div>
     </div></div>` : ''}
   </div>
 
+  <div role="tabpanel" id="tests" aria-labelledby="tab-tests" hidden>
+    ${explorer.count ? '<label class="test-filter">Find a test <input type="search" id="test-query" placeholder="Name, suite, or file"><output id="test-matches" aria-live="polite"></output></label>' : ''}
+    <p class="muted small">Case times come from the runner. Suite wall time also includes startup and shared setup. Parallel tests may overlap.</p>
+    ${explorer.layerPanel('rules')}${explorer.layerPanel('journeys')}
+  </div>
   <div role="tabpanel" id="findings" aria-labelledby="tab-findings" hidden>
     <h2>Check violations · ${findings.length}</h2>
-    <div class="card">${findings.length ? `<ul class="findings">${findings.map(f => `<li><span class="check">${esc(f.check)}</span><code>${esc(f.file)}${f.line ? `:${esc(f.line)}` : ''}</code><span class="muted">${esc(f.message)}</span></li>`).join('')}</ul>` : '<p class="muted small">No check violations were recorded.</p>'}</div>
+    <div class="card">${findings.length ? `<ul class="findings">${findings.map(f => `<li><span class="check">${esc(f.check)}</span><span>${explorer.findingSource(f.file, f.line)}</span><span class="muted">${esc(f.message)}</span></li>`).join('')}</ul>` : '<p class="muted small">No check violations were recorded.</p>'}</div>
     ${review.length ? `<h2>Evidence to review · ${review.length}</h2>
     <div class="card"><ul class="findings">${review.map(item => `<li><span class="check">${esc(item.label)}</span><div>${esc(item.message)}
-      ${item.paths?.length ? `<details class="evidence"><summary>File paths</summary>${item.paths.map(path => `<p><code>${esc(path)}</code></p>`).join('')}</details>` : ''}</div></li>`).join('')}</ul></div>` : ''}
+      ${item.paths?.length ? `<details class="evidence"><summary>File paths</summary>${item.paths.map(path => `<p>${explorer.findingSource(path)}</p>`).join('')}</details>` : ''}</div></li>`).join('')}</ul></div>` : ''}
   </div>
 
   ${nav.runs?.length ? `<div role="tabpanel" id="runs" aria-labelledby="tab-runs" hidden><div class="card">
@@ -371,8 +396,42 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
   // Tabs (and #findings / #runs links open their tab).
   const tabs = [...document.querySelectorAll('[role="tab"]')];
   const select = id => { for (const t of tabs) { const on = t.getAttribute('aria-controls') === id; t.setAttribute('aria-selected', on); document.getElementById(t.getAttribute('aria-controls')).hidden = !on; } };
-  for (const t of tabs) t.addEventListener('click', () => { select(t.getAttribute('aria-controls')); history.replaceState(null, '', '#' + t.getAttribute('aria-controls')); });
-  if (tabs.some(t => '#' + t.getAttribute('aria-controls') === location.hash)) select(location.hash.slice(1));
+  const query = document.getElementById('test-query');
+  const filterTests = () => {
+    const term = query.value.trim().toLowerCase();
+    let matches = 0;
+    for (const file of document.querySelectorAll('.test-file')) {
+      if (!file.hasAttribute('data-open-before-filter') && term) file.dataset.openBeforeFilter = file.open ? 'yes' : 'no';
+      const path = file.querySelector(':scope > p')?.textContent ?? '';
+      const cases = [...file.querySelectorAll('.case-row')];
+      for (const row of cases) {
+        row.hidden = !!term && !(path + ' ' + row.textContent).toLowerCase().includes(term);
+        if (!row.hidden) matches++;
+      }
+      file.hidden = !!term && !cases.some(row => !row.hidden);
+      if (term) file.open = !file.hidden;
+      else if (file.hasAttribute('data-open-before-filter')) {
+        file.open = file.dataset.openBeforeFilter === 'yes';
+        delete file.dataset.openBeforeFilter;
+      }
+    }
+    document.getElementById('test-matches').textContent = term ? matches + (matches === 1 ? ' match' : ' matches') : '';
+  };
+  query?.addEventListener('input', filterTests);
+  const navigate = () => {
+    const target = document.getElementById(location.hash.slice(1) || 'scoreboard');
+    const panel = target?.closest('[role="tabpanel"]');
+    if (!panel) return;
+    select(panel.id);
+    if (target === panel) return;
+    if (panel.id === 'tests' && query?.value) { query.value = ''; filterTests(); }
+    for (let detail = target.closest('details'); detail; detail = detail.parentElement.closest('details')) detail.open = true;
+    target.scrollIntoView({ block: 'start' });
+    target.querySelector(':scope > summary')?.focus({ preventScroll: true });
+  };
+  for (const t of tabs) t.addEventListener('click', () => { location.hash = t.getAttribute('aria-controls'); navigate(); });
+  window.addEventListener('hashchange', navigate);
+  if (location.hash) navigate();
 })();
 </script>
 </body>

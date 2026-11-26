@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Self-check for the scorer: each fixture must score the way the rubric says it should.
 //   node scorer/check.mjs
+import { readTestFiles } from './test-results.mjs';
 import { renderHtml } from './report-html.mjs';
 import { formatDuration, speedDetail } from './timing.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -40,6 +41,17 @@ delete historic.reviewItems;
 const oldPage = renderHtml(historic);
 expect(oldPage.includes('Check violations · 0') && oldPage.includes('Evidence to review · 2') &&
   oldPage.includes('2 recently changed files are outside the Rules import graph.'), 'saved runs explain coverage gaps even when static checks are clean');
+
+const files = readTestFiles({ testResults: [{ name: '/repo/test/checkout.test.ts', status: 'failed', assertionResults: [
+  { title: 'a buyer pays', status: 'failed', duration: 12.34, location: { line: 5 }, meta: { rjOutcome: 'checkout' }, failureMessages: ['Incorrect total\ninternal stack'] },
+  { title: 'a buyer waits', status: 'skipped' },
+] }] }, '/repo');
+const casePage = renderHtml({ ...clean, layers: { journeys: { ...clean.layers.journeys, testFiles: files } },
+  outcomes: [{ id: 'checkout', title: 'Checkout', status: 'failed', routes: ['POST /sell'] }] });
+expect(files[0].path === 'test/checkout.test.ts' && files[0].cases[1].ms === null, 'runner paths are relative and skipped cases retain missing timing');
+expect(casePage.includes('href="#case-journeys-0-0"') && casePage.includes('12.3 ms') && casePage.includes('checkout.test.ts:5') &&
+  casePage.includes('Incorrect total') && !casePage.includes('internal stack'), 'outcomes drill into the matching case, timing, source line and first failure');
+expect(oldPage.includes('This run has no individual test records.'), 'historical runs explain missing case measurements');
 
 // Change the code a Journey covers: the Journey goes stale.
 const copy = mkdtempSync(join(tmpdir(), 'rj-clean-'));

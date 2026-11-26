@@ -190,6 +190,12 @@ Put an optional `rules-and-journeys.json` at the repo root:
 each area's coverage. An entry is a detected id (`POST /api/checkout`) or a URL fragment the scorer can't find itself
 (`POST /api/cart/`), matched against the exact method and route ID in runtime evidence. Detected entry points in no area are listed under "Other".
 
+## Individual test results
+
+Each layer command receives a unique temporary path in `RJ_TEST_REPORT`. A Vitest command can append `--reporter=default --reporter=json --outputFile.json="$RJ_TEST_REPORT" --includeTaskLocation`. The scorer reads the report after the command exits, including on failure. Each file and case goes into the run's JSON alongside its suite names, runner status, duration, source line and first failure message when available.
+
+The Tests tab groups cases by file. File totals sum the measured case durations. Layer wall time also includes startup and shared setup and can include parallel work. Rules folders link to test files with direct core imports. To link a Journey's individual case to its outcome and observed areas, set Vitest's `task.meta.rjOutcome` to the configured outcome ID. Past runs and runners without case reports still show their saved aggregate measurements. Clean GitHub checkouts include source links at the scored commit.
+
 ## Comparing runs
 
 Rubric 2 starts a new series when the rubric, effective configuration, measured dimensions, or availability of mutation and timing inputs changes. Older reports remain readable. The commit and local-edit indicator identify the checkout. One observation provides a baseline, and subsequent comparable observations draw the sparklines.
