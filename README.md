@@ -63,7 +63,7 @@ Call them what fits your team: **Rules / Journeys**, **Core / Integration**, **U
 
 ## How to adopt
 
-Get the tool: `git clone https://github.com/ryw/rules-and-journeys` (Node 22 or newer; the scorer has no dependencies).
+Get the tool: `git clone https://github.com/ryw/rules-and-journeys && npm install` (Node 22 or newer). Charts are drawn with [Observable Plot](https://observablehq.com/plot/) when the report is generated, so the report itself ships no JavaScript library.
 
 1. **Score it.** `node scorer/score.mjs path/to/repo` writes `SCOREBOARD.html` (a self-contained report with the score's trend), `SCOREBOARD.md`, `score.json` and `history.json`. Or add it to a project: `pnpm add -D github:ryw/rules-and-journeys`, then run `rules-and-journeys . --run --out reports/tests`. [SCORING.md](SCORING.md) explains every number.
 2. **Give your agent the skill.** [skills/test-manager](skills/test-manager/SKILL.md) assesses, reshapes tests a folder at a time, writes and rewrites Journeys, and refreshes recordings. There are recipes for TypeScript, Ruby and Python.

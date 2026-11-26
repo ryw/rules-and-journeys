@@ -34,5 +34,9 @@
     },
     "./report": "./scorer/report-html.mjs",
     "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@observablehq/plot": "^0.6.19",
+    "linkedom": "^0.18.15"
   }
 }

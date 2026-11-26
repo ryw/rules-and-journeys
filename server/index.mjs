@@ -1,5 +1,5 @@
 // Rules and Journeys reports, mounted inside your own app (like Sidekiq's web UI): keep every scored run in your Postgres
-// and serve the scoreboards with their history. Zero dependencies. The host app brings three things:
+// and serve the scoreboards with their history. No database driver or web framework of its own; the host app brings three things:
 //   - a database: anything with query(text, params) → Promise<{ rows }>, such as a node-postgres Pool;
 //   - authentication: mount createReports() behind your own admin check, it has none of its own;
 //   - the schema: run schemaSql() once (or copy it into a migration).
@@ -125,9 +125,12 @@ export function createReports({ db, schema = 'rj', defaultBranch = 'main', baseP
       if (!run) return send(res, 404, plainPage('No runs', `<h1>${esc(project.slug)}</h1><p>No runs recorded on this branch yet.</p>`));
 
       // The trend: this branch's runs up to this one, oldest first.
-      const history = (await db.query(`SELECT commit, scored_at, score FROM (SELECT commit, scored_at, score, id FROM ${s}.run
-        WHERE project_id = $1 AND branch = $2 AND (scored_at, id) <= ($3, $4) ORDER BY scored_at DESC, id DESC LIMIT ${TREND}) t ORDER BY scored_at, id`,
-        [project.id, run.branch, run.scored_at, run.id])).rows.map(r => ({ commit: r.commit, scoredAt: new Date(r.scored_at).toISOString(), score: r.score }));
+      const history = (await db.query(`SELECT commit, scored_at, score, dimensions, layers FROM (SELECT commit, scored_at, score, id,
+          (SELECT jsonb_object_agg(k, v->'score') FROM jsonb_each(result->'dimensions') AS d(k, v)) AS dimensions,
+          (SELECT jsonb_object_agg(k, jsonb_build_object('ms', v->'ms')) FROM jsonb_each(result->'layers') AS l(k, v) WHERE v ? 'ms') AS layers
+        FROM ${s}.run WHERE project_id = $1 AND branch = $2 AND (scored_at, id) <= ($3, $4) ORDER BY scored_at DESC, id DESC LIMIT ${TREND}) t ORDER BY scored_at, id`,
+        [project.id, run.branch, run.scored_at, run.id])).rows.map(r => ({ commit: r.commit, scoredAt: new Date(r.scored_at).toISOString(), score: r.score,
+          dimensions: r.dimensions ?? {}, layers: r.layers ?? {} }));
       const recent = (await db.query(`SELECT id, branch, commit, scored_at, score FROM ${s}.run WHERE project_id = $1 AND branch = $2 ORDER BY scored_at DESC, id DESC LIMIT 15`,
         [project.id, run.branch])).rows;
       const result = typeof run.result === 'string' ? JSON.parse(run.result) : run.result;

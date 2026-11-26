@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Rules and Journeys scorer: scores a repository's tests 0–100 against the principles in README.md (rubric: SCORING.md).
-// Zero dependencies, Node 22+. TypeScript and JavaScript first; everything here is a static heuristic unless --run is given.
+// Node 22+; the report's charts use Observable Plot (rendered to static SVG). TypeScript and JavaScript first; everything here is a static heuristic unless --run is given.
 //
 //   node scorer/score.mjs <repo> [--run] [--json] [--out <dir>] [--since <days>]
 //
@@ -365,7 +365,8 @@ writeFileSync(join(out, 'score.json'), JSON.stringify(result, null, 2));
 const historyPath = join(out, 'history.json');
 let history = [];
 try { history = JSON.parse(readFileSync(historyPath, 'utf8')); if (!Array.isArray(history)) history = []; } catch { history = []; }
-history.push({ scoredAt: result.scoredAt, commit: result.commit, score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])) });
+history.push({ scoredAt: result.scoredAt, commit: result.commit, score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])),
+  layers: Object.fromEntries(Object.entries(result.layers).filter(([, l]) => l.ms !== undefined).map(([k, l]) => [k, { ms: l.ms }])) });
 history = history.slice(-200);
 writeFileSync(historyPath, JSON.stringify(history, null, 2));
 writeFileSync(join(out, 'SCOREBOARD.html'), renderHtml(result, history));
