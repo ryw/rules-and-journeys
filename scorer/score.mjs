@@ -12,6 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, globSync, mkdirSync, mkdtempSync, rmSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { formatTiming, speedDetail } from './timing.mjs';
 import { renderHtml } from './report-html.mjs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 
@@ -331,9 +332,9 @@ const dims = {};
 dims.rulesPurity = rulesFiles.length ? { score: (100 * (rulesFiles.length - impureRules.length)) / rulesFiles.length, detail: `${rulesFiles.length - impureRules.length} of ${rulesFiles.length} Rules test files are pure` } : na('no Rules tests');
 {
   const parts = [];
-  if (timings.rules?.msPerLoc != null) parts.push({ w: 7, s: timings.rules.passed ? curve(timings.rules.msPerLoc, 0.05, 2) : 0, d: `Rules ${timings.rules.ms} ms (${timings.rules.msPerLoc.toFixed(3)} ms/LOC)${timings.rules.passed ? '' : ', FAILED'}` });
-  if (timings.journeys?.msPerLoc != null) parts.push({ w: 3, s: timings.journeys.passed ? curve(timings.journeys.msPerLoc, 0.5, 20) : 0, d: `Journeys ${timings.journeys.ms} ms (${timings.journeys.msPerLoc.toFixed(3)} ms/LOC)${timings.journeys.passed ? '' : ', FAILED'}` });
-  dims.speed = parts.length ? { score: parts.reduce((n, p) => n + p.w * p.s, 0) / parts.reduce((n, p) => n + p.w, 0), detail: parts.map(p => p.d).join('; ') }
+  if (timings.rules?.msPerLoc != null) parts.push({ w: 7, s: timings.rules.passed ? curve(timings.rules.msPerLoc, 0.05, 2) : 0 });
+  if (timings.journeys?.msPerLoc != null) parts.push({ w: 3, s: timings.journeys.passed ? curve(timings.journeys.msPerLoc, 0.5, 20) : 0 });
+  dims.speed = parts.length ? { score: parts.reduce((n, p) => n + p.w * p.s, 0) / parts.reduce((n, p) => n + p.w, 0), detail: speedDetail(timings) }
     : na(flag('--run') ? 'no layer commands in rules-and-journeys.json' : 'not run (pass --run)');
 }
 const squared = count('squared-loop');
@@ -403,7 +404,7 @@ md.push(`Scored ${result.scoredAt.slice(0, 10)}${sha ? ` at ${sha}` : ''}. Measu
 md.push('| Dimension | Weight | Score | Detail |', '| --- | ---: | ---: | --- |');
 for (const [k, d] of Object.entries(result.dimensions)) md.push(`| ${d.name} | ${d.weight} | ${d.score === null ? 'n/a' : d.score} | ${d.score === null ? d.reason : d.detail} |`);
 md.push('', '## Layers', '', '| Layer | Files | Tests | Findings | Time |', '| --- | ---: | ---: | ---: | --- |');
-for (const [name, l] of Object.entries(layers)) md.push(`| ${name} | ${l.files} | ${l.tests} | ${l.findings} | ${l.ms !== undefined ? `${l.ms} ms (${l.msPerLoc?.toFixed(3)} ms/LOC)` : 'not run'} |`);
+for (const [name, l] of Object.entries(layers)) md.push(`| ${name} | ${l.files} | ${l.tests} | ${l.findings} | ${l.ms !== undefined ? formatTiming(l) : 'not run'} |`);
 md.push('', `## Folders (${sourceFiles.length} source files, ${sourceLoc.toLocaleString('en-US')} lines)`, '', '| Folder | Files | Lines | Exports named in Rules tests | In Rules import graph | Changed, outside graph | Score |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const [name, f] of Object.entries(folders).sort((a, b) => b[1].loc - a[1].loc).slice(0, 30)) md.push(`| ${name} | ${f.files} | ${f.loc} | ${f.tested}/${f.exports} | ${f.reached}/${f.files} | ${f.recentUntouched} | ${f.score} |`);
 if (outcomes.length) md.push('', '## Journey outcomes', '', ...outcomes.map(o => `- ${o.status}: ${o.title}`));

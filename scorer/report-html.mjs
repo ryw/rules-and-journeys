@@ -3,13 +3,13 @@
 // one <style> block and one small <script> (theme toggle and tooltips), both allowed by hash. Colors are CSS variables,
 // so light and dark each get their own palette. All text from the scored repo is escaped; every value a tooltip shows is
 // also in the table view.
+import { formatDuration, formatTiming, speedDetail } from './timing.mjs';
 import * as Plot from '@observablehq/plot';
 import { parseHTML } from 'linkedom';
 
 const { document } = parseHTML('<!doctype html><html><body></body></html>');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const fmt = (n, digits = 0) => Number(n).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-const seconds = ms => ms >= 10_000 ? `${fmt(ms / 1000, 1)} s` : ms >= 1000 ? `${fmt(ms / 1000, 2)} s` : `${fmt(ms)} ms`;
 const when = iso => new Date(iso).toISOString().slice(0, 16).replace('T', ' ');
 const NAMES = { rulesPurity: 'Purity', speed: 'Speed', overtesting: 'Avoid overtesting', undertesting: 'Avoid undertesting', journeyCoverage: 'Journey coverage', determinism: 'Determinism', freshness: 'Freshness' };
 /** What each dimension measures, in plain English (shown on hover). */
@@ -109,7 +109,10 @@ export function renderHtml(result, history = [], nav = {}) {
   const next = gaps.find(o => o.status === 'failed') ?? gaps[0];
   const observed = outcomes.filter(o => o.status === 'passed');
   const prev = runs.length >= 2 ? runs[runs.length - 2] : null;
-  const D = result.dimensions;
+  const D = { ...result.dimensions };
+  // Stored runs include a preformatted speed description. Render it from the recorded numbers when available.
+  const timingDetail = speedDetail(result.layers);
+  if (D.speed?.score != null && timingDetail) D.speed = { ...D.speed, detail: timingDetail };
   const total = result.measuredWeight || 1;
   const opportunities = Object.entries(D).filter(([, d]) => d.score !== null).map(([key, d]) => ({ name: NAMES[key] ?? d.name, value: (d.weight * (100 - d.score)) / total, tip: `${NAMES[key] ?? d.name}: ${d.detail}` }))
     .filter(l => l.value >= 0.5).sort((a, b) => b.value - a.value);
@@ -136,8 +139,8 @@ export function renderHtml(result, history = [], nav = {}) {
     const ms = runs.map((r, i) => i === runs.length - 1 ? l.ms ?? null : r.layers?.[name]?.ms ?? null), max = Math.max(...ms.filter(v => v !== null), 1);
     return `<div class="card dim">
       <div class="dim-top"><span class="dim-name">${name === 'rules' ? 'Rules' : 'Journeys'} tests<span class="info" tabindex="0" data-tip="${esc(`${l.files} test files · ${l.command ? `run with ${l.command}` : 'no command configured'}${l.passed === false ? ' · last run failed' : ''}`)}" aria-label="What this measures">i</span></span></div>
-      <div class="dim-score"><b>${fmt(l.tests)}</b><span class="unit">${l.ms !== undefined ? `${seconds(l.ms)} · ${fmt(l.msPerLoc ?? 0, 2)} ms/line` : 'not timed'}</span></div>
-      ${sparkline(ms, { domain: [0, max * 1.15], tips: ms.map((v, i) => `${v === null ? 'n/a' : seconds(v)} · ${ago(runs[i].scoredAt)}`) })}
+      <div class="dim-score"><b>${fmt(l.tests)}</b><span class="unit">${formatTiming(l)}</span></div>
+      ${sparkline(ms, { domain: [0, max * 1.15], tips: ms.map((v, i) => `${v === null ? 'n/a' : formatDuration(v)} · ${ago(runs[i].scoredAt)}`) })}
     </div>`;
   };
 

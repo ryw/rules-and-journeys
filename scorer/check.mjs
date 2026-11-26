@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Self-check for the scorer: each fixture must score the way the rubric says it should.
 //   node scorer/check.mjs
+import { formatDuration, speedDetail } from './timing.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const score = repo => JSON.parse(execFileSync(process.execPath, [join(here, 'score.mjs'), repo, '--json'], { encoding: 'utf8' }));
 const failures = [];
 const expect = (ok, message) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${message}`); if (!ok) failures.push(message); };
+
+const timings = { rules: { ms: 1864, msPerLoc: 0.139 }, journeys: { ms: 14972, msPerLoc: 1.113 } };
+expect(speedDetail(timings) === 'Rules 1.86 s (0.139 ms/LOC); Journeys 15.0 s (1.11 ms/LOC)', 'timings retain three significant digits in the appropriate unit');
+expect(formatDuration(999.9) === '1.00 s' && formatDuration(60_000) === '1.00 min', 'rounded timings promote to the next unit');
 
 const squared = score(join(here, 'fixtures/squared'));
 expect(squared.squaredLoopFail, 'squared: the squared loop fails the run');
