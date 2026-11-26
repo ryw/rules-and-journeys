@@ -13,6 +13,7 @@
     "SCORING.md",
     "bot",
     "scorer/report-html.mjs",
+    "scorer/review-items.mjs",
     "scorer/score.mjs",
     "scorer/timing.mjs",
     "server",

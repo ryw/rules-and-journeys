@@ -3,6 +3,7 @@
 // one <style> block and one small <script> (theme toggle and tooltips), both allowed by hash. Colors are CSS variables,
 // so light and dark each get their own palette. All text from the scored repo is escaped; every value a tooltip shows is
 // also in the table view.
+import { reviewItems } from './review-items.mjs';
 import { formatDuration, formatTiming, speedDetail } from './timing.mjs';
 import * as Plot from '@observablehq/plot';
 import { parseHTML } from 'linkedom';
@@ -122,6 +123,8 @@ export function renderHtml(result, history = [], nav = {}) {
   const entries = result.entryPoints ?? [];
   const areas = result.areas?.length ? result.areas : entries.length ? [{ name: 'Entry points', description: 'Routes and tools the scorer found. Group and describe them under "areas" in rules-and-journeys.json.', entryPoints: entries.map(e => ({ id: e.id, covered: e.covered })) }] : [];
   const findings = result.findings ?? [];
+  const review = result.reviewItems ?? reviewItems(result);
+  const findingCount = findings.length + review.length;
   const runTip = (value, i) => `${value === null || value === undefined ? 'n/a' : value} · ${ago(runs[i].scoredAt)}`;
 
   const card = key => {
@@ -277,7 +280,7 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
 
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-scoreboard" aria-controls="scoreboard" aria-selected="true">Scoreboard</button>
-    <button role="tab" id="tab-findings" aria-controls="findings" aria-selected="false">Findings <span class="pill${findings.length ? ' hot' : ''}">${findings.length}</span></button>
+    <button role="tab" id="tab-findings" aria-controls="findings" aria-selected="false">Findings <span class="pill${findings.length || review.some(item => item.label.startsWith('Failed ')) ? ' hot' : ''}">${findingCount}</span></button>
     ${nav.runs?.length ? `<button role="tab" id="tab-runs" aria-controls="runs" aria-selected="false">Runs <span class="pill">${nav.runs.length}</span></button>` : ''}
   </div>
 
@@ -325,7 +328,11 @@ footer { margin-top: 22px; text-align: right; font-size: 12px; } footer a { colo
   </div>
 
   <div role="tabpanel" id="findings" aria-labelledby="tab-findings" hidden>
-    <div class="card">${findings.length ? `<ul class="findings">${findings.map(f => `<li><span class="check">${esc(f.check)}</span><code>${esc(f.file)}${f.line ? `:${f.line}` : ''}</code><span class="muted">${esc(f.message)}</span></li>`).join('')}</ul>` : '<p class="muted small">Nothing to look at.</p>'}</div>
+    <h2>Check violations · ${findings.length}</h2>
+    <div class="card">${findings.length ? `<ul class="findings">${findings.map(f => `<li><span class="check">${esc(f.check)}</span><code>${esc(f.file)}${f.line ? `:${esc(f.line)}` : ''}</code><span class="muted">${esc(f.message)}</span></li>`).join('')}</ul>` : '<p class="muted small">No check violations were recorded.</p>'}</div>
+    ${review.length ? `<h2>Evidence to review · ${review.length}</h2>
+    <div class="card"><ul class="findings">${review.map(item => `<li><span class="check">${esc(item.label)}</span><div>${esc(item.message)}
+      ${item.paths?.length ? `<details class="evidence"><summary>File paths</summary>${item.paths.map(path => `<p><code>${esc(path)}</code></p>`).join('')}</details>` : ''}</div></li>`).join('')}</ul></div>` : ''}
   </div>
 
   ${nav.runs?.length ? `<div role="tabpanel" id="runs" aria-labelledby="tab-runs" hidden><div class="card">

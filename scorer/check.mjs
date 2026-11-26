@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Self-check for the scorer: each fixture must score the way the rubric says it should.
 //   node scorer/check.mjs
+import { renderHtml } from './report-html.mjs';
 import { formatDuration, speedDetail } from './timing.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,6 +34,13 @@ expect(clean.dimensions.journeyCoverage.score === null && !clean.entryPoints.som
 expect(clean.dimensions.freshness.score === 100, 'clean: the recorded source hash matches');
 expect(clean.score === 100, `clean: scores 100 (got ${clean.score})`);
 
+// Earlier runs retained folder counts but not paths. Their Findings tab still explains reviewable gaps.
+const historic = { ...clean, rubricVersion: 2, folders: { src: { ...clean.folders.src, recentUntouched: 2 } } };
+delete historic.reviewItems;
+const oldPage = renderHtml(historic);
+expect(oldPage.includes('Check violations · 0') && oldPage.includes('Evidence to review · 2') &&
+  oldPage.includes('2 recently changed files are outside the Rules import graph.'), 'saved runs explain coverage gaps even when static checks are clean');
+
 // Change the code a Journey covers: the Journey goes stale.
 const copy = mkdtempSync(join(tmpdir(), 'rj-clean-'));
 try {
@@ -49,6 +57,7 @@ try {
   writeFileSync(join(copy, 'report.mjs'), 'process.exit(1);');
   const failed = spawnSync(process.execPath, [join(here, 'score.mjs'), copy, '--run', '--require-pass', '--json'], { encoding: 'utf8' });
   const failedScore = JSON.parse(failed.stdout);
+  expect(failedScore.reviewItems.some(item => item.label === 'Failed suite'), 'failed validation appears in Findings');
   expect(failed.status === 1 && failedScore.layers.journeys.passed === false && !failedScore.entryPoints.some(e => e.covered), 'a failed validation still produces a report and cannot reuse old evidence');
   writeFileSync(join(copy, 'src/fee.ts'), 'export const saleFee = (price: number) => Math.floor(price * 0.06);\n');
   expect(score(copy).dimensions.freshness.score === 0, 'clean, edited: the Journey is stale once its source changes');

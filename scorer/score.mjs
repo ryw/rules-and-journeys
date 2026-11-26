@@ -12,6 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, globSync, mkdirSync, mkdtempSync, rmSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { reviewItems } from './review-items.mjs';
 import { formatTiming, speedDetail } from './timing.mjs';
 import { renderHtml } from './report-html.mjs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -394,6 +395,8 @@ const result = {
   layers, sourceLoc, folders, entryPoints: entryList, areas, findings,
 };
 
+result.reviewItems = reviewItems(result, Object.groupBy(recentUntouched, folderOf));
+
 if (flag('--require-pass') && (!timings.rules?.passed || !timings.journeys?.passed)) process.exitCode = 1;
 if (flag('--json')) { console.log(JSON.stringify(result, null, 2)); process.exit(process.exitCode ?? 0); }
 
@@ -409,9 +412,14 @@ md.push('', `## Folders (${sourceFiles.length} source files, ${sourceLoc.toLocal
 for (const [name, f] of Object.entries(folders).sort((a, b) => b[1].loc - a[1].loc).slice(0, 30)) md.push(`| ${name} | ${f.files} | ${f.loc} | ${f.tested}/${f.exports} | ${f.reached}/${f.files} | ${f.recentUntouched} | ${f.score} |`);
 if (outcomes.length) md.push('', '## Journey outcomes', '', ...outcomes.map(o => `- ${o.status}: ${o.title}`));
 if (entryList.length) { md.push('', `## Observed entry points (${entryList.filter(e => e.covered).length}/${entryList.length} observed)`, ''); for (const e of entryList.slice(0, 40)) md.push(`- ${e.covered ? '✅' : '⬜'} \`${e.id}\` (${e.file})`); if (entryList.length > 40) md.push(`- …and ${entryList.length - 40} more`); }
-md.push('', `## Findings (${findings.length})`, '');
+md.push('', `## Findings (${findings.length + result.reviewItems.length})`, '');
 for (const f of findings.slice(0, 50)) md.push(`- **${f.check}** \`${f.file}:${f.line}\` ${f.message}`);
 if (findings.length > 50) md.push(`- …and ${findings.length - 50} more (score.json has all of them)`);
+for (const item of result.reviewItems) {
+  md.push(`- **${item.label}** ${item.message}`);
+  for (const path of item.paths ?? []) md.push(`  - \`${path}\``);
+}
+if (!findings.length && !result.reviewItems.length) md.push('No check violations or review leads were recorded.');
 md.push('', '_Heuristics, not proofs: see SCORING.md for how each number is measured._', '');
 const out = resolve(option('--out', repo));
 mkdirSync(out, { recursive: true });

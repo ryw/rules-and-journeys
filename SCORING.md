@@ -163,7 +163,7 @@ The hash is SHA-256 over each matched file's repo path and contents (NUL-separat
   - the layers;
   - the 30 largest folders;
   - entry points, ticked when a Journey covers them;
-  - the first 50 findings, as `file:line` and a one-line reason.
+  - the first 50 check violations with file and line, followed by review leads from the run. The Findings badge counts each violation and each review item once. Changed files outside the Rules import graph are grouped by folder. Earlier runs can show folder totals even when only counts were saved. Review leads add no scoring penalty.
 - **`score.json`:** the same data, complete, for tools and trend lines.
 
 ## Configuration
