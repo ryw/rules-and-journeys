@@ -54,7 +54,7 @@ export function renderHtml(result, history = []) {
     .filter(l => l.points >= 0.5).sort((a, b) => b.points - a.points);
   const head = status(result.score), prev = history.length >= 2 ? history[history.length - 2] : null;
   const delta = prev ? result.score - prev.score : null;
-  const repoName = String(result.repo ?? '').split('/').filter(Boolean).pop() ?? 'repo';
+  const repoName = result.name ?? (String(result.repo ?? '').split('/').filter(s => s && s !== '.').pop() || 'repo');
   const when = new Date(result.scoredAt);
   const layers = Object.entries(result.layers ?? {});
   const folders = Object.entries(result.folders ?? {}).sort((a, b) => a[1].score - b[1].score);

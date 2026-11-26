@@ -12,7 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { renderHtml } from './report-html.mjs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
 // ---------- arguments and configuration ----------
 const args = process.argv.slice(2);
@@ -335,7 +335,7 @@ for (const f of Object.values(folders)) f.score = Math.round(0.6 * (f.exports ? 
 
 let sha = null; try { sha = execFileSync('git', ['-C', repo, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* not a git repo */ }
 const result = {
-  repo: relative(process.cwd(), repo) || '.', commit: sha, scoredAt: new Date().toISOString(), score, squaredLoopFail: squared > 0,
+  name: basename(repo), repo: relative(process.cwd(), repo) || '.', commit: sha, scoredAt: new Date().toISOString(), score, squaredLoopFail: squared > 0,
   measuredWeight, dimensions: Object.fromEntries(Object.entries(dims).map(([k, d]) => [k, { name: NAMES[k], weight: WEIGHTS[k], ...d, score: d.score === null ? null : Math.round(d.score) }])),
   layers, sourceLoc, folders, entryPoints: entryList, findings,
 };
