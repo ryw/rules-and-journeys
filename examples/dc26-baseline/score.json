@@ -1,0 +1,221 @@
+{
+  "repo": "../tmp/dc26-baseline",
+  "commit": "752076e",
+  "scoredAt": "2026-11-26T01:04:30.515Z",
+  "score": 0,
+  "squaredLoopFail": false,
+  "measuredWeight": 40,
+  "dimensions": {
+    "rulesPurity": {
+      "name": "Rules purity",
+      "weight": 15,
+      "score": null,
+      "reason": "no Rules tests"
+    },
+    "speed": {
+      "name": "Speed (ms per line)",
+      "weight": 10,
+      "score": null,
+      "reason": "not run (pass --run)"
+    },
+    "overtesting": {
+      "name": "Overtesting",
+      "weight": 25,
+      "score": null,
+      "reason": "no tests to judge"
+    },
+    "undertesting": {
+      "name": "Undertesting",
+      "weight": 25,
+      "score": 0,
+      "detail": "0 of 1188 core exports named in Rules tests; 0 of 380 source files changed in 30 days are reached by a test; mutation score n/a (no reports/mutation/mutation.json)"
+    },
+    "journeyCoverage": {
+      "name": "Journey coverage",
+      "weight": 15,
+      "score": 0,
+      "detail": "0 of 19 entry points appear in a Journey (no Journeys yet)"
+    },
+    "determinism": {
+      "name": "Determinism",
+      "weight": 5,
+      "score": null,
+      "reason": "no tests"
+    },
+    "freshness": {
+      "name": "Journey freshness",
+      "weight": 5,
+      "score": null,
+      "reason": "no Journeys"
+    }
+  },
+  "layers": {
+    "rules": {
+      "files": 0,
+      "tests": 0,
+      "findings": 0
+    },
+    "journeys": {
+      "files": 0,
+      "tests": 0,
+      "findings": 0
+    }
+  },
+  "sourceLoc": 13420,
+  "folders": {
+    "src": {
+      "files": 133,
+      "loc": 10026,
+      "exports": 657,
+      "tested": 0,
+      "reached": 0,
+      "recentUntouched": 133,
+      "score": 0
+    },
+    "src/behaviors": {
+      "files": 247,
+      "loc": 3394,
+      "exports": 531,
+      "tested": 0,
+      "reached": 0,
+      "recentUntouched": 247,
+      "score": 0
+    }
+  },
+  "entryPoints": [
+    {
+      "id": "GET /health",
+      "kind": "route",
+      "key": "/health",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "POST /api/guest",
+      "kind": "route",
+      "key": "/api/guest",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "POST /api/auth/sign-in/anonymous",
+      "kind": "route",
+      "key": "/api/auth/sign-in/anonymous",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "GET /api/auth/oauth2/authorize",
+      "kind": "route",
+      "key": "/api/auth/oauth2/authorize",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "POST /api/auth/oauth2/token",
+      "kind": "route",
+      "key": "/api/auth/oauth2/token",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "ALL /api/auth/{*path}",
+      "kind": "route",
+      "key": "/api/auth/{*path}",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "ALL /.well-known/{*path}",
+      "kind": "route",
+      "key": "/.well-known/{*path}",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "POST /mcp",
+      "kind": "route",
+      "key": "/mcp",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "ALL /mcp",
+      "kind": "route",
+      "key": "/mcp",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "POST /mcp/account",
+      "kind": "route",
+      "key": "/mcp/account",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "ALL /mcp/account",
+      "kind": "route",
+      "key": "/mcp/account",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "GET /api/game",
+      "kind": "route",
+      "key": "/api/game",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "POST /api/game/:action",
+      "kind": "route",
+      "key": "/api/game/:action",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "GET /api/session",
+      "kind": "route",
+      "key": "/api/session",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "GET /api/hall",
+      "kind": "route",
+      "key": "/api/hall",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "GET /api/hall/heroes/:id",
+      "kind": "route",
+      "key": "/api/hall/heroes/:id",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "GET /companion",
+      "kind": "route",
+      "key": "/companion",
+      "file": "src/index.ts",
+      "covered": false
+    },
+    {
+      "id": "tool start_guest",
+      "kind": "tool",
+      "key": "start_guest",
+      "file": "src/mcp.ts",
+      "covered": false
+    },
+    {
+      "id": "tool claim_account",
+      "kind": "tool",
+      "key": "claim_account",
+      "file": "src/mcp.ts",
+      "covered": false
+    }
+  ],
+  "findings": []
+}
