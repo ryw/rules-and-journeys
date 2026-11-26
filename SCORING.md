@@ -5,7 +5,8 @@ The scoreboard turns the [principles](README.md) into one number from 0 to 100, 
 ```
 node scorer/score.mjs <repo>          # static checks only
 node scorer/score.mjs <repo> --run    # also runs each layer and scores speed
-node scorer/score.mjs <repo> --json   # print instead of writing SCOREBOARD.md and score.json
+node scorer/score.mjs <repo> --json   # print instead of writing the scoreboard files
+node scorer/score.mjs <repo> --out reports/tests   # SCOREBOARD.html, SCOREBOARD.md, score.json and history.json go there
 ```
 
 ## Dimensions and weights

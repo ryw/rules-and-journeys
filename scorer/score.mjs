@@ -5,11 +5,13 @@
 //   node scorer/score.mjs <repo> [--run] [--json] [--out <dir>] [--since <days>]
 //
 // --run   also runs each layer's command (rules-and-journeys.json "commands") and scores speed in ms per line of source.
-// --json  prints the result as JSON instead of writing SCOREBOARD.md and score.json.
-// --out   where SCOREBOARD.md and score.json go (default: the repo root).
+// --json  prints the result as JSON instead of writing the scoreboard files.
+// --out   where SCOREBOARD.md, SCOREBOARD.html, score.json and history.json go (default: the repo root); created if missing.
+//         history.json keeps the last 200 headline scores, for the trend line in SCOREBOARD.html.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, globSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, globSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { renderHtml } from './report-html.mjs';
 import { dirname, join, relative, resolve } from 'node:path';
 
 // ---------- arguments and configuration ----------
@@ -356,6 +358,15 @@ for (const f of findings.slice(0, 50)) md.push(`- **${f.check}** \`${f.file}:${f
 if (findings.length > 50) md.push(`- …and ${findings.length - 50} more (score.json has all of them)`);
 md.push('', '_Heuristics, not proofs: see SCORING.md for how each number is measured._', '');
 const out = resolve(option('--out', repo));
+mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'SCOREBOARD.md'), md.join('\n'));
 writeFileSync(join(out, 'score.json'), JSON.stringify(result, null, 2));
-console.log(`${score}/100${squared ? ' FAIL (squared loop)' : ''} — measured ${measuredWeight}/100 weight. Wrote ${relative(process.cwd(), join(out, 'SCOREBOARD.md'))} and score.json.`);
+// The trend: one row per run, newest last, bounded.
+const historyPath = join(out, 'history.json');
+let history = [];
+try { history = JSON.parse(readFileSync(historyPath, 'utf8')); if (!Array.isArray(history)) history = []; } catch { history = []; }
+history.push({ scoredAt: result.scoredAt, commit: result.commit, score, dimensions: Object.fromEntries(Object.entries(result.dimensions).map(([k, d]) => [k, d.score])) });
+history = history.slice(-200);
+writeFileSync(historyPath, JSON.stringify(history, null, 2));
+writeFileSync(join(out, 'SCOREBOARD.html'), renderHtml(result, history));
+console.log(`${score}/100${squared ? ' FAIL (squared loop)' : ''} — measured ${measuredWeight}/100 weight. Wrote ${relative(process.cwd(), join(out, 'SCOREBOARD.html'))}, SCOREBOARD.md, score.json and history.json.`);

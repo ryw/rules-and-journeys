@@ -1,0 +1,27 @@
+{
+  "name": "rules-and-journeys",
+  "version": "0.1.0",
+  "description": "Testing principles, a 0–100 scorer and a test-manager skill for code written with AI agents.",
+  "type": "module",
+  "bin": {
+    "rules-and-journeys": "scorer/score.mjs"
+  },
+  "files": [
+    "scorer/score.mjs",
+    "scorer/report-html.mjs",
+    "README.md",
+    "SCORING.md",
+    "skills",
+    "bot"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node scorer/check.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryw/rules-and-journeys.git"
+  }
+}
