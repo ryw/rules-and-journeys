@@ -28,7 +28,10 @@
     "url": "git+https://github.com/ryw/rules-and-journeys.git"
   },
   "exports": {
-    "./server": "./server/index.mjs",
+    "./server": {
+      "types": "./server/index.d.mts",
+      "default": "./server/index.mjs"
+    },
     "./report": "./scorer/report-html.mjs",
     "./package.json": "./package.json"
   }
