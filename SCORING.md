@@ -183,3 +183,7 @@ Put an optional `rules-and-journeys.json` at the repo root:
   ]
 }
 ```
+
+`areas` groups the app's entry points and describes each group in plain English; the report's Journeys section shows
+each area's coverage. An entry is a detected id (`POST /api/checkout`) or a URL fragment the scorer can't find itself
+(`POST /api/cart/`), covered when a Journey's code contains it. Detected entry points in no area are listed under "Other".
